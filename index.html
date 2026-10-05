@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GameBangla Arena</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <div class="logo">🎮 GameBangla <span>Arena</span></div>
+  <nav>
+    <a href="#games">গেম</a>
+    <a href="#challenge">Daily Challenge</a>
+    <a href="#leaderboard">Leaderboard</a>
+  </nav>
+</header>
+
+<section class="hero">
+  <div>
+    <p class="badge">FREE TO PLAY</p>
+    <h1>খেলুন, স্কোর করুন, লিডারবোর্ডে উঠুন!</h1>
+    <p>মজার ব্রাউজার গেম, দৈনিক চ্যালেঞ্জ এবং আপনার স্কোর—সব এক জায়গায়।</p>
+    <a class="btn" href="#games">গেম শুরু করুন</a>
+  </div>
+</section>
+
+<section class="ad">ADVERTISEMENT</section>
+
+<section id="games" class="section">
+  <h2>🔥 জনপ্রিয় গেম</h2>
+  <div class="grid">
+    <div class="card"><div class="game-icon">🧠</div><h3>Quick Quiz</h3><p>দ্রুত প্রশ্নের উত্তর দিন।</p><button onclick="play('Quick Quiz')">Play Now</button></div>
+    <div class="card"><div class="game-icon">🧮</div><h3>Math Rush</h3><p>সময় শেষ হওয়ার আগে হিসাব করুন।</p><button onclick="play('Math Rush')">Play Now</button></div>
+    <div class="card"><div class="game-icon">🎯</div><h3>Target Tap</h3><p>যত দ্রুত পারেন টার্গেট ট্যাপ করুন।</p><button onclick="play('Target Tap')">Play Now</button></div>
+  </div>
+</section>
+
+<section id="challenge" class="section challenge">
+  <h2>🏆 Daily Challenge</h2>
+  <p>আজকের চ্যালেঞ্জ: ৩০ সেকেন্ডে যত বেশি সঠিক উত্তর দিতে পারেন!</p>
+  <button class="btn" onclick="startChallenge()">চ্যালেঞ্জ শুরু</button>
+  <div id="challengeBox"></div>
+</section>
+
+<section id="leaderboard" class="section">
+  <h2>🥇 Leaderboard</h2>
+  <table>
+    <tr><th>Rank</th><th>Player</th><th>Score</th></tr>
+    <tr><td>1</td><td>Rahim</td><td>9,850</td></tr>
+    <tr><td>2</td><td>Karim</td><td>8,920</td></tr>
+    <tr><td>3</td><td>Player123</td><td>8,410</td></tr>
+  </table>
+</section>
+
+<footer>
+  <p>© 2026 GameBangla Arena — Free-to-play gaming platform.</p>
+</footer>
+<script src="script.js"></script>
+</body>
+</html>
