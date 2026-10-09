@@ -516,3 +516,160 @@ function startChallenge() {
 
   showQuestion();
 }
+// ==============================
+// SNAKE GAME
+// ==============================
+
+function startSnakeGame(box) {
+  let snake = [{ x: 8, y: 8 }];
+  let food = { x: 4, y: 4 };
+  let direction = { x: 1, y: 0 };
+  let nextDirection = { x: 1, y: 0 };
+  let score = 0;
+  let running = true;
+  let loop = null;
+  const size = 16;
+  const cells = 20;
+
+  box.innerHTML = `
+    ${gameTitle("🐍 Snake Game")}
+    <p>খাবার খাও, সাপ বড় করো!</p>
+    <h3>স্কোর: <span id="snakeScore">0</span></h3>
+    <canvas id="snakeCanvas"
+      width="320" height="320"
+      style="width:100%;max-width:320px;background:#0d1426;border:2px solid #35d07f;border-radius:10px;touch-action:none">
+    </canvas>
+    <p id="snakeMessage">তীর চিহ্ন দিয়ে সাপ চালান</p>
+    <div style="display:grid;grid-template-columns:repeat(3,65px);gap:8px;justify-content:center;margin-top:12px">
+      <span></span>
+      <button id="snakeUp">⬆️</button>
+      <span></span>
+      <button id="snakeLeft">⬅️</button>
+      <button id="snakeDown">⬇️</button>
+      <button id="snakeRight">➡️</button>
+    </div>
+    <br>
+    <button id="snakeRestart" style="padding:12px 20px;border:0;border-radius:10px">
+      🔄 আবার খেলুন
+    </button>
+  `;
+
+  const canvas = box.querySelector("#snakeCanvas");
+  const ctx = canvas.getContext("2d");
+
+  box.querySelectorAll("#snakeUp,#snakeDown,#snakeLeft,#snakeRight").forEach(btn => {
+    btn.style.cssText = "padding:12px;border:0;border-radius:10px;font-size:20px";
+  });
+
+  function placeFood() {
+    do {
+      food = {
+        x: Math.floor(Math.random() * cells),
+        y: Math.floor(Math.random() * cells)
+      };
+    } while (snake.some(part => part.x === food.x && part.y === food.y));
+  }
+
+  function setDirection(x, y) {
+    if (x === -direction.x && y === -direction.y) return;
+    nextDirection = { x, y };
+  }
+
+  box.querySelector("#snakeUp").onclick = () => setDirection(0, -1);
+  box.querySelector("#snakeDown").onclick = () => setDirection(0, 1);
+  box.querySelector("#snakeLeft").onclick = () => setDirection(-1, 0);
+  box.querySelector("#snakeRight").onclick = () => setDirection(1, 0);
+
+  function keyHandler(e) {
+    const keys = {
+      ArrowUp: [0, -1],
+      ArrowDown: [0, 1],
+      ArrowLeft: [-1, 0],
+      ArrowRight: [1, 0],
+      w: [0, -1],
+      s: [0, 1],
+      a: [-1, 0],
+      d: [1, 0]
+    };
+
+    if (keys[e.key]) {
+      e.preventDefault();
+      setDirection(keys[e.key][0], keys[e.key][1]);
+    }
+  }
+
+  document.addEventListener("keydown", keyHandler);
+
+  function draw() {
+    ctx.fillStyle = "#0d1426";
+    ctx.fillRect(0, 0, 320, 320);
+
+    ctx.fillStyle = "#ff4757";
+    ctx.fillRect(food.x * size, food.y * size, size - 1, size - 1);
+
+    snake.forEach((part, i) => {
+      ctx.fillStyle = i === 0 ? "#7bed9f" : "#2ed573";
+      ctx.fillRect(part.x * size, part.y * size, size - 1, size - 1);
+    });
+  }
+
+  function endGame() {
+    running = false;
+    clearInterval(loop);
+    document.removeEventListener("keydown", keyHandler);
+    box.querySelector("#snakeMessage").textContent =
+      "খেলা শেষ! আপনার স্কোর: " + score;
+  }
+
+  function tick() {
+    if (!running) return;
+
+    direction = nextDirection;
+
+    const head = {
+      x: snake[0].x + direction.x,
+      y: snake[0].y + direction.y
+    };
+
+    const eating = head.x === food.x && head.y === food.y;
+    const body = eating ? snake : snake.slice(0, -1);
+
+    if (
+      head.x < 0 || head.x >= cells ||
+      head.y < 0 || head.y >= cells ||
+      body.some(part => part.x === head.x && part.y === head.y)
+    ) {
+      endGame();
+      return;
+    }
+
+    snake.unshift(head);
+
+    if (eating) {
+      score++;
+      box.querySelector("#snakeScore").textContent = score;
+
+      if (snake.length === cells * cells) {
+        draw();
+        endGame();
+        box.querySelector("#snakeMessage").textContent =
+          "অসাধারণ! আপনি পুরো বোর্ড জিতেছেন!";
+        return;
+      }
+
+      placeFood();
+    } else {
+      snake.pop();
+    }
+
+    draw();
+  }
+
+  box.querySelector("#snakeRestart").onclick = () => {
+    startSnakeGame(box);
+  };
+
+  placeFood();
+  draw();
+  loop = setInterval(tick, 150);
+}
