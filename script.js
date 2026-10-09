@@ -42,6 +42,7 @@ function play(name) {
   if (name === "Quick Quiz") startQuickQuiz(box);
   else if (name === "Math Rush") startMathRush(box);
   else if (name === "Target Tap") startTargetTap(box);
+   else if (name === "Snake Game") startSnakeGame(box);
   else {
     box.innerHTML = `
       <h3>গেম পাওয়া যায়নি</h3>
