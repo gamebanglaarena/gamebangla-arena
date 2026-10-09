@@ -352,46 +352,103 @@ function startTargetTap(box) {
   }, 1000);
 }
 
-// DAILY CHALLENGE
+
+ // DAILY CHALLENGE
 function startChallenge() {
   const box = document.getElementById("challengeBox");
 
-  box.innerHTML = `
-    <div style="
-      background:#18213a;
-      color:#fff;
-      padding:20px;
-      border-radius:12px;
-      margin-top:15px;
-    ">
+  const questions = [
+    {
+      q: "বাংলাদেশের জাতীয় খেলা কোনটি?",
+      a: ["কাবাডি", "ক্রিকেট", "ফুটবল"],
+      c: 0
+    },
+    {
+      q: "বাংলাদেশের রাজধানী কোনটি?",
+      a: ["চট্টগ্রাম", "ঢাকা", "রাজশাহী"],
+      c: 1
+    },
+    {
+      q: "পৃথিবীকে আলো ও তাপ দেয় কে?",
+      a: ["চাঁদ", "সূর্য", "মঙ্গল"],
+      c: 1
+    },
+    {
+      q: "এক সপ্তাহে কয় দিন?",
+      a: ["৫ দিন", "৬ দিন", "৭ দিন"],
+      c: 2
+    },
+    {
+      q: "পানির রাসায়নিক সংকেত কোনটি?",
+      a: ["CO₂", "H₂O", "O₂"],
+      c: 1
+    }
+  ];
 
-      <h3>আজকের প্রশ্ন</h3>
+  // প্রশ্নগুলোর ক্রম এলোমেলো করা
+  questions.sort(() => Math.random() - 0.5);
 
-      <p>বাংলাদেশের জাতীয় খেলা কোনটি?</p>
+  let index = 0;
+  let score = 0;
 
-      <button onclick="answer(true)"
-        style="margin:5px;padding:10px;border-radius:8px;border:0;">
-        কাবাডি
-      </button>
+  function showQuestion() {
+    if (index >= questions.length) {
+      box.innerHTML = `
+        <div style="background:#18213a;color:white;padding:20px;border-radius:12px;margin-top:15px;text-align:center">
+          <h3>🎉 চ্যালেঞ্জ শেষ!</h3>
+          <p>আপনার স্কোর: ${score}/${questions.length}</p>
+          <button onclick="startChallenge()" style="padding:10px 16px;border:0;border-radius:8px">
+            আবার খেলুন
+          </button>
+        </div>
+      `;
+      return;
+    }
 
-      <button onclick="answer(false)"
-        style="margin:5px;padding:10px;border-radius:8px;border:0;">
-        ক্রিকেট
-      </button>
+    const item = questions[index];
 
-      <button onclick="answer(false)"
-        style="margin:5px;padding:10px;border-radius:8px;border:0;">
-        ফুটবল
-      </button>
+    box.innerHTML = `
+      <div style="background:#18213a;color:white;padding:20px;border-radius:12px;margin-top:15px;text-align:center">
+        <h3>🏆 Daily Challenge</h3>
+        <p>প্রশ্ন ${index + 1}/${questions.length}</p>
+        <h4>${item.q}</h4>
+        <div id="dailyAnswers"></div>
+        <p id="dailyFeedback"></p>
+      </div>
+    `;
 
-    </div>
-  `;
-}
+    const area = box.querySelector("#dailyAnswers");
 
-function answer(correct) {
-  alert(
-    correct
-      ? "সঠিক উত্তর! 🎉"
-      : "ভুল উত্তর। আবার চেষ্টা করুন!"
-  );
+    item.a.forEach((answerText, i) => {
+      const btn = document.createElement("button");
+      btn.textContent = answerText;
+      btn.style.cssText = "display:block;width:100%;margin:8px 0;padding:12px;border:0;border-radius:8px;cursor:pointer";
+
+      btn.onclick = () => {
+        if (i === item.c) {
+          score++;
+          box.querySelector("#dailyFeedback").textContent = "✅ সঠিক উত্তর!";
+        } else {
+          box.querySelector("#dailyFeedback").textContent =
+            "❌ ভুল উত্তর! সঠিক উত্তর: " + item.a[item.c];
+        }
+
+        area.querySelectorAll("button").forEach(b => b.disabled = true);
+
+        const next = document.createElement("button");
+        next.textContent = index === questions.length - 1 ? "ফলাফল দেখুন" : "পরের প্রশ্ন";
+        next.style.cssText = "margin-top:12px;padding:12px 20px;border:0;border-radius:8px";
+        next.onclick = () => {
+          index++;
+          showQuestion();
+        };
+
+        area.appendChild(next);
+      };
+
+      area.appendChild(btn);
+    });
+  }
+
+  showQuestion();
 }
