@@ -751,6 +751,12 @@ function startTicTacToe(box) {
   }
 
   area.innerHTML = `
+  <div style="text-align:right">
+  <button onclick="closeGame()" 
+    style="background:#e74c3c;color:white;padding:10px 18px;border:0;border-radius:8px;font-size:20px">
+    ✕ বন্ধ করুন
+  </button>
+</div>
     <h2>Tic Tac Toe</h2>
     <p id="tttMessage">Player X-এর পালা</p>
     <div id="tttBoard"
