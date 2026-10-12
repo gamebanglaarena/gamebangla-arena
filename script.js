@@ -725,3 +725,81 @@ function startSnakeGame(box) {
     resumeGame();
   }
 }
+
+function startTicTacToe() {
+  let board = ["", "", "", "", "", "", "", "", ""];
+  let turn = "X";
+  let finished = false;
+
+  const wins = [
+    [0, 1, 2], [3, 4, 5], [6, 7, 8],
+    [0, 3, 6], [1, 4, 7], [2, 5, 8],
+    [0, 4, 8], [2, 4, 6]
+  ];
+
+  const area = document.getElementById("gameArea");
+  if (!area) {
+    alert("Game area পাওয়া যায়নি!");
+    return;
+  }
+
+  area.innerHTML = `
+    <h2>Tic Tac Toe</h2>
+    <p id="tttMessage">Player X-এর পালা</p>
+    <div id="tttBoard"
+      style="display:grid;grid-template-columns:repeat(3,80px);
+      gap:6px;justify-content:center">
+    </div>
+    <button id="tttReset">আবার খেলুন</button>
+  `;
+
+  const grid = document.getElementById("tttBoard");
+  const message = document.getElementById("tttMessage");
+
+  function drawBoard() {
+    grid.innerHTML = "";
+
+    board.forEach((value, i) => {
+      const cell = document.createElement("button");
+      cell.textContent = value;
+      cell.style.height = "80px";
+      cell.style.fontSize = "32px";
+      cell.style.fontWeight = "bold";
+
+      cell.onclick = () => {
+        if (finished || board[i] !== "") return;
+
+        board[i] = turn;
+
+        const won = wins.some(line =>
+          line.every(index => board[index] === turn)
+        );
+
+        if (won) {
+          finished = true;
+          message.textContent = "Player " + turn + " জিতেছে!";
+        } else if (board.every(cell => cell !== "")) {
+          finished = true;
+          message.textContent = "খেলা ড্র হয়েছে!";
+        } else {
+          turn = turn === "X" ? "O" : "X";
+          message.textContent = "Player " + turn + "-এর পালা";
+        }
+
+        drawBoard();
+      };
+
+      grid.appendChild(cell);
+    });
+  }
+
+  document.getElementById("tttReset").onclick = () => {
+    board = ["", "", "", "", "", "", "", "", ""];
+    turn = "X";
+    finished = false;
+    message.textContent = "Player X-এর পালা";
+    drawBoard();
+  };
+
+  drawBoard();
+}
