@@ -456,14 +456,7 @@ function startChallenge() {
 
     if (index >= questions.length) {
       box.innerHTML = `
-        <div style="background:#18213a;color:white;padding:20px;border-radius:12px;margin-top:15px;text-align:center">
-          <h3>🎉 আজকের চ্যালেঞ্জ শেষ!</h3>
-          <p>আপনার স্কোর: ${score}/${questions.length}</p>
-          <p>আগামীকাল আবার নতুন চ্যালেঞ্জ খেলুন!</p>
-          <button onclick="startChallenge()" style="padding:10px 16px;border:0;border-radius:8px">
-            আবার খেলুন
-          </button>
-        </div>
+        
       `;
       return;
     }
