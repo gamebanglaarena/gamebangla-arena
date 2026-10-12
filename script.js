@@ -546,6 +546,12 @@ function startSnakeGame(box) {
   let paused = saved ? true : false;
 
   box.innerHTML = `
+  <div style="text-align:right">
+  <button onclick="closeGame()" 
+    style="background:#e74c3c;color:white;padding:10px 18px;border:0;border-radius:8px;font-size:20px">
+    ✕ বন্ধ করুন
+  </button>
+</div>
     ${gameTitle("🐍 Snake Game")}
     <p>খাবার খেয়ে সাপ বড় করুন!</p>
     <h3>স্কোর: <span id="snakeScore">${score}</span></h3>
