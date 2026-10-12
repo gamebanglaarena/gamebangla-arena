@@ -726,8 +726,8 @@ function startSnakeGame(box) {
     resumeGame();
   }
 }
+function startTicTacToe(box) {
 
-function startTicTacToe() {
   let board = ["", "", "", "", "", "", "", "", ""];
   let turn = "X";
   let finished = false;
