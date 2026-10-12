@@ -521,46 +521,69 @@ function startChallenge() {
 // SNAKE GAME
 // ==============================
 
+
 function startSnakeGame(box) {
-  let snake = [{ x: 8, y: 8 }];
-  let food = { x: 4, y: 4 };
-  let direction = { x: 1, y: 0 };
-  let nextDirection = { x: 1, y: 0 };
-  let score = 0;
-  let running = true;
-  let loop = null;
-  const size = 16;
+  if (startSnakeGame.cleanup) startSnakeGame.cleanup();
+
+  const saveKey = "gbaSnakeSave";
   const cells = 20;
+  const size = 16;
+
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(saveKey) || "null");
+  } catch (e) {}
+
+  let snake = saved?.snake || [{ x: 8, y: 8 }, { x: 7, y: 8 }];
+  let food = saved?.food || { x: 4, y: 4 };
+  let direction = saved?.direction || { x: 1, y: 0 };
+  let nextDirection = { ...direction };
+  let score = saved?.score || 0;
+  let running = false;
+  let gameOver = saved?.gameOver || false;
+  let loop = null;
+  let paused = saved ? true : false;
 
   box.innerHTML = `
     ${gameTitle("🐍 Snake Game")}
-    <p>খাবার খাও, সাপ বড় করো!</p>
-    <h3>স্কোর: <span id="snakeScore">0</span></h3>
-    <canvas id="snakeCanvas"
-      width="320" height="320"
+    <p>খাবার খেয়ে সাপ বড় করুন!</p>
+    <h3>স্কোর: <span id="snakeScore">${score}</span></h3>
+    <canvas id="snakeCanvas" width="320" height="320"
       style="width:100%;max-width:320px;background:#0d1426;border:2px solid #35d07f;border-radius:10px;touch-action:none">
     </canvas>
-    <p id="snakeMessage">তীর চিহ্ন দিয়ে সাপ চালান</p>
+    <p id="snakeMessage">খেলা শুরু করুন অথবা Pause করুন</p>
+
     <div style="display:grid;grid-template-columns:repeat(3,65px);gap:8px;justify-content:center;margin-top:12px">
-      <span></span>
-      <button id="snakeUp">⬆️</button>
-      <span></span>
+      <span></span><button id="snakeUp">⬆️</button><span></span>
       <button id="snakeLeft">⬅️</button>
       <button id="snakeDown">⬇️</button>
       <button id="snakeRight">➡️</button>
     </div>
-    <br>
-    <button id="snakeRestart" style="padding:12px 20px;border:0;border-radius:10px">
-      🔄 আবার খেলুন
-    </button>
+
+    <p style="margin-top:18px">
+      <button id="snakePause">⏸️ Pause</button>
+      <button id="snakeResume">▶️ Resume</button>
+    </p>
+    <button id="snakeRestart">🔄 নতুন করে খেলুন</button>
   `;
 
   const canvas = box.querySelector("#snakeCanvas");
   const ctx = canvas.getContext("2d");
+  const message = box.querySelector("#snakeMessage");
+  const pauseBtn = box.querySelector("#snakePause");
+  const resumeBtn = box.querySelector("#snakeResume");
 
-  box.querySelectorAll("#snakeUp,#snakeDown,#snakeLeft,#snakeRight").forEach(btn => {
-    btn.style.cssText = "padding:12px;border:0;border-radius:10px;font-size:20px";
+  box.querySelectorAll("button").forEach(btn => {
+    btn.style.cssText += ";padding:10px;border:0;border-radius:10px;font-size:16px;margin:3px";
   });
+
+  function saveGame() {
+    try {
+      localStorage.setItem(saveKey, JSON.stringify({
+        snake, food, direction, score, gameOver
+      }));
+    } catch (e) {}
+  }
 
   function placeFood() {
     do {
@@ -570,36 +593,6 @@ function startSnakeGame(box) {
       };
     } while (snake.some(part => part.x === food.x && part.y === food.y));
   }
-
-  function setDirection(x, y) {
-    if (x === -direction.x && y === -direction.y) return;
-    nextDirection = { x, y };
-  }
-
-  box.querySelector("#snakeUp").onclick = () => setDirection(0, -1);
-  box.querySelector("#snakeDown").onclick = () => setDirection(0, 1);
-  box.querySelector("#snakeLeft").onclick = () => setDirection(-1, 0);
-  box.querySelector("#snakeRight").onclick = () => setDirection(1, 0);
-
-  function keyHandler(e) {
-    const keys = {
-      ArrowUp: [0, -1],
-      ArrowDown: [0, 1],
-      ArrowLeft: [-1, 0],
-      ArrowRight: [1, 0],
-      w: [0, -1],
-      s: [0, 1],
-      a: [-1, 0],
-      d: [1, 0]
-    };
-
-    if (keys[e.key]) {
-      e.preventDefault();
-      setDirection(keys[e.key][0], keys[e.key][1]);
-    }
-  }
-
-  document.addEventListener("keydown", keyHandler);
 
   function draw() {
     ctx.fillStyle = "#0d1426";
@@ -614,24 +607,73 @@ function startSnakeGame(box) {
     });
   }
 
-  function endGame() {
+  function stopLoop() {
     running = false;
-    clearInterval(loop);
-    document.removeEventListener("keydown", keyHandler);
-    box.querySelector("#snakeMessage").textContent =
-      "খেলা শেষ! আপনার স্কোর: " + score;
+    if (loop) clearInterval(loop);
+    loop = null;
   }
 
+  function pauseGame() {
+    if (gameOver) return;
+    stopLoop();
+    paused = true;
+    message.textContent = "খেলা Pause করা আছে। Resume চাপুন।";
+    saveGame();
+  }
+
+  function resumeGame() {
+    if (gameOver || running) return;
+    paused = false;
+    running = true;
+    message.textContent = "খেলা চলছে!";
+    loop = setInterval(tick, 150);
+    saveGame();
+  }
+
+  function endGame() {
+    stopLoop();
+    gameOver = true;
+    paused = false;
+    message.textContent = "খেলা শেষ! আপনার স্কোর: " + score;
+    saveGame();
+  }
+
+  function setDirection(x, y) {
+    if (x === -direction.x && y === -direction.y) return;
+    nextDirection = { x, y };
+  }
+
+  function keyHandler(e) {
+    const keys = {
+      ArrowUp: [0, -1], ArrowDown: [0, 1],
+      ArrowLeft: [-1, 0], ArrowRight: [1, 0],
+      w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0]
+    };
+    if (keys[e.key]) {
+      e.preventDefault();
+      setDirection(...keys[e.key]);
+    }
+  }
+
+  box.querySelector("#snakeUp").onclick = () => setDirection(0, -1);
+  box.querySelector("#snakeDown").onclick = () => setDirection(0, 1);
+  box.querySelector("#snakeLeft").onclick = () => setDirection(-1, 0);
+  box.querySelector("#snakeRight").onclick = () => setDirection(1, 0);
+  pauseBtn.onclick = pauseGame;
+  resumeBtn.onclick = resumeGame;
+  box.querySelector("#snakeRestart").onclick = () => {
+    try { localStorage.removeItem(saveKey); } catch (e) {}
+    startSnakeGame(box);
+  };
+
   function tick() {
-    if (!running) return;
+    if (!running || gameOver) return;
 
     direction = nextDirection;
-
     const head = {
       x: snake[0].x + direction.x,
       y: snake[0].y + direction.y
     };
-
     const eating = head.x === food.x && head.y === food.y;
     const body = eating ? snake : snake.slice(0, -1);
 
@@ -650,27 +692,36 @@ function startSnakeGame(box) {
       score++;
       box.querySelector("#snakeScore").textContent = score;
 
-      if (snake.length === cells * cells) {
+      if (snake.length >= cells * cells) {
         draw();
         endGame();
-        box.querySelector("#snakeMessage").textContent =
-          "অসাধারণ! আপনি পুরো বোর্ড জিতেছেন!";
+        message.textContent = "অসাধারণ! আপনি জিতেছেন!";
         return;
       }
-
       placeFood();
     } else {
       snake.pop();
     }
 
     draw();
+    saveGame();
   }
 
-  box.querySelector("#snakeRestart").onclick = () => {
-    startSnakeGame(box);
+  document.addEventListener("keydown", keyHandler);
+
+  startSnakeGame.cleanup = () => {
+    stopLoop();
+    document.removeEventListener("keydown", keyHandler);
   };
 
-  placeFood();
+  if (!saved) placeFood();
   draw();
-  loop = setInterval(tick, 150);
+
+  if (gameOver) {
+    message.textContent = "আগের খেলা শেষ। নতুন করে খেলুন। স্কোর: " + score;
+  } else if (paused) {
+    message.textContent = "আগের খেলা সংরক্ষিত। Resume চাপুন।";
+  } else {
+    resumeGame();
+  }
 }
