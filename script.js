@@ -738,7 +738,7 @@ function startTicTacToe() {
     [0, 4, 8], [2, 4, 6]
   ];
 
-  const area = document.getElementById("gameArea");
+  const area = box;
   if (!area) {
     alert("Game area পাওয়া যায়নি!");
     return;
