@@ -1,0 +1,90 @@
+
+<!DOCTYPE html>
+<html lang="bn">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GameBangla Snake Arena</title>
+<style>
+body{margin:0;background:#081321;color:white;text-align:center;font-family:Arial}
+h2{color:#4cff9b}
+canvas{width:92vw;max-width:480px;background:#10202b;border:2px solid #36e88a;touch-action:none}
+button{padding:12px;margin:5px;border:0;border-radius:9px;background:#27e58a;font-size:18px}
+</style>
+</head>
+<body>
+<h2>🐍 Snake Arena</h2>
+<p>🍎 খাবার খাও, বড় হও, অন্য সাপ থেকে বাঁচো!</p>
+<p>স্কোর: <b id="score">0</b> | সাপ: <b id="alive">4</b></p>
+<canvas id="c" width="480" height="480"></canvas>
+<p id="msg">খেলা শুরু করুন!</p>
+<button onclick="start()">🔄 আবার খেলুন</button>
+<p>
+<button onclick="turn(0,-1)">⬆️</button><br>
+<button onclick="turn(-1,0)">⬅️</button>
+<button onclick="turn(0,1)">⬇️</button>
+<button onclick="turn(1,0)">➡️</button>
+</p>
+<script>
+const c=document.getElementById('c'),x=c.getContext('2d'),n=24,z=20;
+let s,f,score,dead,d={x:1,y:0},timer;
+const colors=['#39f58b','#ff536b','#48baff','#ffcf45'];
+const eq=(a,b)=>a.x===b.x&&a.y===b.y;
+const rnd=()=>({x:Math.random()*n|0,y:Math.random()*n|0});
+function food(){do{f=rnd()}while(s.some(a=>a.body.some(b=>eq(b,f))))}
+function start(){
+ clearInterval(timer);score=0;dead=false;d={x:1,y:0};
+ s=[
+ {body:[{x:4,y:4},{x:3,y:4},{x:2,y:4}],d:{x:1,y:0},ai:0},
+ {body:[{x:17,y:17},{x:18,y:17},{x:19,y:17}],d:{x:-1,y:0},ai:1},
+ {body:[{x:17,y:4},{x:17,y:5},{x:17,y:6}],d:{x:0,y:-1},ai:1},
+ {body:[{x:4,y:18},{x:4,y:19},{x:4,y:20}],d:{x:0,y:-1},ai:1}
+ ].map(a=>({...a,color:colors[s?.length||0],alive:true}));
+ s.forEach((a,i)=>a.color=colors[i]);food();stepDraw();
+ document.getElementById('msg').textContent='অন্য সাপের গায়ে লাগবেন না!';
+ timer=setInterval(step,160);
+}
+function turn(a,b){if(dead||a===-d.x&&b===-d.y)return;d={x:a,y:b}}
+function step(){
+ if(dead)return;
+ for(const a of s)if(a.alive&&a.ai){
+  const h=a.body[0],opts=[{x:1,y:0},{x:-1,y:0},{x:0,y:1},{x:0,y:-1}].filter(v=>!(v.x===-a.d.x&&v.y===-a.d.y));
+  opts.sort((u,v)=>(Math.abs(h.x+u.x-f.x)+Math.abs(h.y+u.y-f.y))-(Math.abs(h.x+v.x-f.x)+Math.abs(h.y+v.y-f.y)));
+  a.d=opts[0];
+ }
+ const plans=s.filter(a=>a.alive).map(a=>({a,h:{x:a.body[0].x+(a.ai?a.d.x:d.x),y:a.body[0].y+(a.ai?a.d.y:d.y)}})),bad=new Set();
+ for(const p of plans){
+  const h=p.h;
+  if(h.x<0||h.x>=n||h.y<0||h.y>=n)bad.add(p.a);
+  for(const q of plans){
+   const body=q.a.body,lim=body.length-(eq(q.h,f)?0:1);
+   for(let i=0;i<lim;i++)if(eq(h,body[i]))bad.add(p.a);
+   if(p!==q&&eq(h,q.h)){bad.add(p.a);bad.add(q.a)}
+  }
+ }
+ bad.forEach(a=>a.alive=false);
+ for(const p of plans)if(!bad.has(p.a)){
+  p.a.body.unshift(p.h);
+  if(eq(p.h,f)){if(!p.a.ai)score+=10;food()}else p.a.body.pop();
+ }
+ stepDraw();
+ if(!s[0].alive){dead=true;clearInterval(timer);document.getElementById('msg').textContent='💥 Game Over! আবার খেলুন।'}
+ else if(s.filter(a=>a.alive).length===1){dead=true;clearInterval(timer);document.getElementById('msg').textContent='🏆 আপনি জিতেছেন!'}
+}
+function stepDraw(){
+ x.clearRect(0,0,480,480);
+ x.strokeStyle='#1a3343';
+ for(let i=0;i<=n;i++){x.beginPath();x.moveTo(i*z,0);x.lineTo(i*z,480);x.stroke();x.beginPath();x.moveTo(0,i*z);x.lineTo(480,i*z);x.stroke()}
+ x.fillStyle='#ff536b';x.beginPath();x.arc(f.x*z+10,f.y*z+10,7,0,7);x.fill();
+ for(const a of s)if(a.alive)a.body.forEach((b,i)=>{x.fillStyle=a.color;x.fillRect(b.x*z+1,b.y*z+1,18,18);if(i===0){x.fillStyle='#081321';x.fillRect(b.x*z+5,b.y*z+5,3,3);x.fillRect(b.x*z+12,b.y*z+5,3,3)}});
+ document.getElementById('score').textContent=score;
+ document.getElementById('alive').textContent=s.filter(a=>a.alive).length;
+}
+let sx,sy;
+c.addEventListener('touchstart',e=>{sx=e.touches[0].clientX;sy=e.touches[0].clientY},{passive:true});
+c.addEventListener('touchend',e=>{let dx=e.changedTouches[0].clientX-sx,dy=e.changedTouches[0].clientY-sy;if(Math.abs(dx)>Math.abs(dy))turn(Math.sign(dx),0);else turn(0,Math.sign(dy))},{passive:true});
+document.addEventListener('keydown',e=>{if(e.key==='ArrowUp')turn(0,-1);if(e.key==='ArrowDown')turn(0,1);if(e.key==='ArrowLeft')turn(-1,0);if(e.key==='ArrowRight')turn(1,0)});
+start();
+</script>
+</body>
+</html>
