@@ -809,3 +809,181 @@ function startTicTacToe(box) {
 
   drawBoard();
 }
+
+/* ===== Worm Arena: নতুন গেম ===== */
+(function () {
+  const wormGame = {
+    start() {
+      const old = document.getElementById("wormArenaGame");
+      if (old) old.remove();
+
+      const wrap = document.createElement("div");
+      wrap.id = "wormArenaGame";
+      wrap.style.cssText =
+        "position:fixed;inset:0;z-index:99999;background:#101827;color:white;display:flex;flex-direction:column;font-family:Arial,sans-serif;padding:10px;box-sizing:border-box";
+
+      wrap.innerHTML = `
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
+          <b style="font-size:22px;color:#67f7b5">🐛 Worm Arena</b>
+          <button id="wormClose" style="padding:10px;border:0;border-radius:8px">✕ বন্ধ</button>
+        </div>
+        <div style="display:flex;justify-content:space-around;padding:10px">
+          <b>⭐ স্কোর: <span id="wormScore">0</span></b>
+          <b>🪙 কয়েন: <span id="wormCoins">0</span></b>
+        </div>
+        <canvas id="wormCanvas" style="width:100%;flex:1;min-height:200px;background:#172c38;border-radius:12px;touch-action:none"></canvas>
+        <div style="text-align:center;padding:8px">খাবার খান, কয়েন নিন, অন্য ওয়ার্ম থেকে দূরে থাকুন!</div>
+        <div style="display:flex;justify-content:center;gap:16px;padding:6px">
+          <button id="wormLeft">⬅️</button>
+          <button id="wormUp">⬆️</button>
+          <button id="wormDown">⬇️</button>
+          <button id="wormRight">➡️</button>
+        </div>
+      `;
+
+      document.body.appendChild(wrap);
+
+      const canvas = wrap.querySelector("#wormCanvas");
+      const ctx = canvas.getContext("2d");
+      const scoreText = wrap.querySelector("#wormScore");
+      const coinsText = wrap.querySelector("#wormCoins");
+
+      let width, height, score = 0, coins = 0;
+      let running = true;
+      let direction = { x: 1, y: 0 };
+      let player = [{ x: 150, y: 120 }, { x: 130, y: 120 }, { x: 110, y: 120 }];
+      let food = { x: 250, y: 160 };
+      let coin = { x: 320, y: 220 };
+      let bots = [
+        { x: 260, y: 100, color: "#ff648c", dx: -1, dy: 0 },
+        { x: 100, y: 230, color: "#ffd166", dx: 1, dy: 0 }
+      ];
+
+      function resize() {
+        const rect = canvas.getBoundingClientRect();
+        const dpr = window.devicePixelRatio || 1;
+        width = Math.max(240, rect.width);
+        height = Math.max(200, rect.height);
+        canvas.width = width * dpr;
+        canvas.height = height * dpr;
+        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      }
+
+      function randomPoint() {
+        return {
+          x: 15 + Math.random() * Math.max(10, width - 30),
+          y: 15 + Math.random() * Math.max(10, height - 30)
+        };
+      }
+
+      function drawCircle(p, color, radius) {
+        ctx.beginPath();
+        ctx.fillStyle = color;
+        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      function drawWorm(points, color) {
+        points.forEach((p, i) => drawCircle(p, color, i === 0 ? 10 : 8));
+        drawCircle(
+          { x: points[0].x + direction.x * 3, y: points[0].y + direction.y * 3 },
+          "#ffffff",
+          2
+        );
+      }
+
+      function turn(x, y) {
+        if (direction.x + x === 0 && direction.y + y === 0) return;
+        direction = { x, y };
+      }
+
+      wrap.querySelector("#wormLeft").onclick = () => turn(-1, 0);
+      wrap.querySelector("#wormRight").onclick = () => turn(1, 0);
+      wrap.querySelector("#wormUp").onclick = () => turn(0, -1);
+      wrap.querySelector("#wormDown").onclick = () => turn(0, 1);
+      wrap.querySelector("#wormClose").onclick = () => {
+        running = false;
+        wrap.remove();
+      };
+
+      canvas.addEventListener("pointerdown", e => {
+        const r = canvas.getBoundingClientRect();
+        const x = e.clientX - r.left - player[0].x;
+        const y = e.clientY - r.top - player[0].y;
+        if (Math.abs(x) > Math.abs(y)) turn(x > 0 ? 1 : -1, 0);
+        else turn(0, y > 0 ? 1 : -1);
+      });
+
+      function frame() {
+        if (!running || !wrap.isConnected) return;
+
+        ctx.clearRect(0, 0, width, height);
+
+        const head = player[0];
+        const next = {
+          x: head.x + direction.x * 3,
+          y: head.y + direction.y * 3
+        };
+
+        if (next.x < 5) next.x = width - 5;
+        if (next.x > width - 5) next.x = 5;
+        if (next.y < 5) next.y = height - 5;
+        if (next.y > height - 5) next.y = 5;
+
+        player.unshift(next);
+        if (player.length > 3 + Math.floor(score / 2)) player.pop();
+
+        if (Math.hypot(next.x - food.x, next.y - food.y) < 17) {
+          score++;
+          scoreText.textContent = score;
+          player.push({ ...player[player.length - 1] });
+          food = randomPoint();
+        }
+
+        if (Math.hypot(next.x - coin.x, next.y - coin.y) < 17) {
+          coins++;
+          coinsText.textContent = coins;
+          coin = randomPoint();
+        }
+
+        bots.forEach(bot => {
+          bot.x += bot.dx * 1.2;
+          bot.y += bot.dy * 1.2;
+
+          if (bot.x < 15 || bot.x > width - 15) bot.dx *= -1;
+          if (bot.y < 15 || bot.y > height - 15) bot.dy *= -1;
+
+          if (Math.random() < 0.025) {
+            if (Math.random() < 0.5) {
+              bot.dx = Math.random() < 0.5 ? -1 : 1;
+              bot.dy = 0;
+            } else {
+              bot.dy = Math.random() < 0.5 ? -1 : 1;
+              bot.dx = 0;
+            }
+          }
+          drawCircle(bot, bot.color, 10);
+        });
+
+        drawCircle(food, "#6cff7d", 7);
+        drawCircle(coin, "#ffdf46", 7);
+        drawWorm(player, "#35d6ff");
+
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "12px Arial";
+        ctx.fillText("🍎", food.x - 6, food.y + 4);
+        ctx.fillText("🪙", coin.x - 7, coin.y + 4);
+
+        setTimeout(() => requestAnimationFrame(frame), 25);
+      }
+
+      resize();
+      window.addEventListener("resize", resize);
+      frame();
+    }
+  };
+
+  window.playWormArena = function () {
+    wormGame.start();
+  };
+})();
