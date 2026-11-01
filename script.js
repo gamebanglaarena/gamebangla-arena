@@ -511,220 +511,416 @@ function startChallenge() {
 
   showQuestion();
 }
-// ==============================
-// SNAKE GAME
-// ==============================
 
+// ==============================
+// SNAKE BATTLE - NEW GAME
+// ==============================
 
 function startSnakeGame(box) {
   if (startSnakeGame.cleanup) startSnakeGame.cleanup();
 
-  const saveKey = "gbaSnakeSave";
-  const cells = 20;
-  const size = 16;
+  const cols = 24;
+  const rows = 24;
+  const cell = 15;
+  const canvasSize = cols * cell;
 
-  let saved = null;
-  try {
-    saved = JSON.parse(localStorage.getItem(saveKey) || "null");
-  } catch (e) {}
-
-  let snake = saved?.snake || [{ x: 8, y: 8 }, { x: 7, y: 8 }];
-  let food = saved?.food || { x: 4, y: 4 };
-  let direction = saved?.direction || { x: 1, y: 0 };
-  let nextDirection = { ...direction };
-  let score = saved?.score || 0;
-  let running = false;
-  let gameOver = saved?.gameOver || false;
+  let score = 0;
+  let running = true;
+  let gameOver = false;
+  let direction = { x: 1, y: 0 };
+  let nextDirection = { x: 1, y: 0 };
   let loop = null;
-  let paused = saved ? true : false;
+
+  const colors = [
+    "#ff5577", "#ffd166", "#b388ff",
+    "#ff914d", "#4dd0e1", "#f06292",
+    "#a3e635"
+  ];
+
+  const player = {
+    body: [
+      { x: 5, y: 12 },
+      { x: 4, y: 12 },
+      { x: 3, y: 12 },
+      { x: 2, y: 12 }
+    ],
+    color: "#35e6a1",
+    dir: { x: 1, y: 0 },
+    player: true
+  };
+
+  const snakes = [player];
+  let food = { x: 15, y: 12 };
+
+  function randomInt(max) {
+    return Math.floor(Math.random() * max);
+  }
+
+  function occupied(x, y, except, includeTail = true) {
+    return snakes.some(snake => {
+      if (snake === except) return false;
+
+      const parts = includeTail
+        ? snake.body
+        : snake.body.slice(0, -1);
+
+      return parts.some(p => p.x === x && p.y === y);
+    });
+  }
+
+  function createFood() {
+    let tries = 0;
+
+    do {
+      food = { x: randomInt(cols), y: randomInt(rows) };
+      tries++;
+    } while (
+      snakes.some(s => s.body.some(p =>
+        p.x === food.x && p.y === food.y
+      )) && tries < 1000
+    );
+  }
+
+  function createBot() {
+    for (let attempt = 0; attempt < 100; attempt++) {
+      const x = 4 + randomInt(cols - 8);
+      const y = 4 + randomInt(rows - 8);
+      const dir = Math.random() < 0.5
+        ? { x: 1, y: 0 }
+        : { x: 0, y: 1 };
+
+      const body = [
+        { x, y },
+        { x: x - dir.x, y: y - dir.y },
+        { x: x - dir.x * 2, y: y - dir.y * 2 },
+        { x: x - dir.x * 3, y: y - dir.y * 3 }
+      ];
+
+      const free = body.every(p =>
+        p.x >= 1 && p.x < cols - 1 &&
+        p.y >= 1 && p.y < rows - 1 &&
+        !occupied(p.x, p.y, null)
+      );
+
+      if (free) {
+        snakes.push({
+          body,
+          color: colors[snakes.length % colors.length],
+          dir,
+          player: false
+        });
+        return;
+      }
+    }
+  }
+
+  for (let i = 0; i < 6; i++) createBot();
+  createFood();
 
   box.innerHTML = `
-  <div style="text-align:right">
-  <button onclick="closeGame()" 
-    style="background:#e74c3c;color:white;padding:10px 18px;border:0;border-radius:8px;font-size:20px">
-    ✕ বন্ধ করুন
-  </button>
-</div>
-    ${gameTitle("🐍 Snake Game")}
-    <p>খাবার খেয়ে সাপ বড় করুন!</p>
-    <h3>স্কোর: <span id="snakeScore">${score}</span></h3>
-    <canvas id="snakeCanvas" width="320" height="320"
-      style="width:100%;max-width:320px;background:#0d1426;border:2px solid #35d07f;border-radius:10px;touch-action:none">
-    </canvas>
-    <p id="snakeMessage">খেলা শুরু করুন অথবা Pause করুন</p>
+    ${gameTitle("🐍 Snake Battle")}
+    <p>🍎 খাবার খান, বড় হন এবং অন্য সাপ থেকে বাঁচুন!</p>
 
-    <div style="display:grid;grid-template-columns:repeat(3,65px);gap:8px;justify-content:center;margin-top:12px">
-      <span></span><button id="snakeUp">⬆️</button><span></span>
+    <div style="display:flex;justify-content:space-around;flex-wrap:wrap">
+      <h3>⭐ স্কোর: <span id="snakeScore">0</span></h3>
+      <h3>🐍 সাপ: ৭টি</h3>
+    </div>
+
+    <canvas id="snakeCanvas"
+      width="360" height="360"
+      style="display:block;width:100%;max-width:360px;height:auto;
+      margin:auto;background:#101b2b;border:2px solid #35e6a1;
+      border-radius:12px;touch-action:none">
+    </canvas>
+
+    <h3 id="snakeMessage" style="color:#ffd166">
+      খেলা চলছে! খাবার সংগ্রহ করুন।
+    </h3>
+
+    <div style="display:grid;grid-template-columns:repeat(3,65px);
+      gap:7px;justify-content:center;margin:12px">
+      <span></span>
+      <button id="snakeUp">⬆️</button>
+      <span></span>
       <button id="snakeLeft">⬅️</button>
       <button id="snakeDown">⬇️</button>
       <button id="snakeRight">➡️</button>
     </div>
 
-    <p style="margin-top:18px">
-      <button id="snakePause">⏸️ Pause</button>
-      <button id="snakeResume">▶️ Resume</button>
-    </p>
-    <button id="snakeRestart">🔄 নতুন করে খেলুন</button>
+    <button id="snakeRestart"
+      style="padding:12px 22px;background:#35e6a1;color:#102030;
+      border:0;border-radius:10px;font-weight:bold">
+      🔄 আবার খেলুন
+    </button>
   `;
 
   const canvas = box.querySelector("#snakeCanvas");
   const ctx = canvas.getContext("2d");
   const message = box.querySelector("#snakeMessage");
-  const pauseBtn = box.querySelector("#snakePause");
-  const resumeBtn = box.querySelector("#snakeResume");
 
-  box.querySelectorAll("button").forEach(btn => {
-    btn.style.cssText += ";padding:10px;border:0;border-radius:10px;font-size:16px;margin:3px";
-  });
-
-  function saveGame() {
-    try {
-      localStorage.setItem(saveKey, JSON.stringify({
-        snake, food, direction, score, gameOver
-      }));
-    } catch (e) {}
-  }
-
-  function placeFood() {
-    do {
-      food = {
-        x: Math.floor(Math.random() * cells),
-        y: Math.floor(Math.random() * cells)
-      };
-    } while (snake.some(part => part.x === food.x && part.y === food.y));
-  }
-
-  function draw() {
-    ctx.fillStyle = "#0d1426";
-    ctx.fillRect(0, 0, 320, 320);
-
-    ctx.fillStyle = "#ff4757";
-    ctx.fillRect(food.x * size, food.y * size, size - 1, size - 1);
-
-    snake.forEach((part, i) => {
-      ctx.fillStyle = i === 0 ? "#7bed9f" : "#2ed573";
-      ctx.fillRect(part.x * size, part.y * size, size - 1, size - 1);
-    });
-  }
-
-  function stopLoop() {
-    running = false;
-    if (loop) clearInterval(loop);
-    loop = null;
-  }
-
-  function pauseGame() {
+  function changeDirection(x, y) {
     if (gameOver) return;
-    stopLoop();
-    paused = true;
-    message.textContent = "খেলা Pause করা আছে। Resume চাপুন।";
-    saveGame();
-  }
-
-  function resumeGame() {
-    if (gameOver || running) return;
-    paused = false;
-    running = true;
-    message.textContent = "খেলা চলছে!";
-    loop = setInterval(tick, 150);
-    saveGame();
-  }
-
-  function endGame() {
-    stopLoop();
-    gameOver = true;
-    paused = false;
-    message.textContent = "খেলা শেষ! আপনার স্কোর: " + score;
-    saveGame();
-  }
-
-  function setDirection(x, y) {
     if (x === -direction.x && y === -direction.y) return;
     nextDirection = { x, y };
   }
 
+  box.querySelector("#snakeUp").onclick =
+    () => changeDirection(0, -1);
+  box.querySelector("#snakeDown").onclick =
+    () => changeDirection(0, 1);
+  box.querySelector("#snakeLeft").onclick =
+    () => changeDirection(-1, 0);
+  box.querySelector("#snakeRight").onclick =
+    () => changeDirection(1, 0);
+
   function keyHandler(e) {
     const keys = {
-      ArrowUp: [0, -1], ArrowDown: [0, 1],
-      ArrowLeft: [-1, 0], ArrowRight: [1, 0],
-      w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0]
+      ArrowUp: [0, -1],
+      ArrowDown: [0, 1],
+      ArrowLeft: [-1, 0],
+      ArrowRight: [1, 0],
+      w: [0, -1],
+      s: [0, 1],
+      a: [-1, 0],
+      d: [1, 0]
     };
+
     if (keys[e.key]) {
       e.preventDefault();
-      setDirection(...keys[e.key]);
+      changeDirection(...keys[e.key]);
     }
   }
 
-  box.querySelector("#snakeUp").onclick = () => setDirection(0, -1);
-  box.querySelector("#snakeDown").onclick = () => setDirection(0, 1);
-  box.querySelector("#snakeLeft").onclick = () => setDirection(-1, 0);
-  box.querySelector("#snakeRight").onclick = () => setDirection(1, 0);
-  pauseBtn.onclick = pauseGame;
-  resumeBtn.onclick = resumeGame;
-  box.querySelector("#snakeRestart").onclick = () => {
-    try { localStorage.removeItem(saveKey); } catch (e) {}
-    startSnakeGame(box);
-  };
+  let touchStart = null;
+
+  canvas.addEventListener("pointerdown", e => {
+    touchStart = { x: e.clientX, y: e.clientY };
+  });
+
+  canvas.addEventListener("pointerup", e => {
+    if (!touchStart) return;
+
+    const dx = e.clientX - touchStart.x;
+    const dy = e.clientY - touchStart.y;
+
+    if (Math.max(Math.abs(dx), Math.abs(dy)) > 15) {
+      if (Math.abs(dx) > Math.abs(dy)) {
+        changeDirection(dx > 0 ? 1 : -1, 0);
+      } else {
+        changeDirection(0, dy > 0 ? 1 : -1);
+      }
+    }
+
+    touchStart = null;
+  });
+
+  document.addEventListener("keydown", keyHandler);
+
+  function drawSnake(snake) {
+    snake.body.forEach((part, i) => {
+      const x = part.x * cell;
+      const y = part.y * cell;
+
+      ctx.fillStyle = snake.color;
+      ctx.beginPath();
+      ctx.roundRect(x + 1, y + 1, cell - 2, cell - 2, 5);
+      ctx.fill();
+
+      if (i === 0) {
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.arc(x + 5, y + 5, 2, 0, Math.PI * 2);
+        ctx.arc(x + 11, y + 5, 2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+  }
+
+  function draw() {
+    ctx.fillStyle = "#101b2b";
+    ctx.fillRect(0, 0, canvasSize, canvasSize);
+
+    ctx.strokeStyle = "rgba(255,255,255,.045)";
+    for (let x = 0; x <= canvasSize; x += cell) {
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, canvasSize);
+      ctx.stroke();
+    }
+    for (let y = 0; y <= canvasSize; y += cell) {
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvasSize, y);
+      ctx.stroke();
+    }
+
+    ctx.fillStyle = "#ffcf40";
+    ctx.beginPath();
+    ctx.arc(
+      food.x * cell + cell / 2,
+      food.y * cell + cell / 2,
+      6, 0, Math.PI * 2
+    );
+    ctx.fill();
+
+    ctx.font = "12px Arial";
+    ctx.fillText("🍎", food.x * cell + 2, food.y * cell + 12);
+
+    snakes.forEach(drawSnake);
+  }
+
+  function botMove(snake) {
+    const head = snake.body[0];
+
+    const choices = [
+      { x: 1, y: 0 },
+      { x: -1, y: 0 },
+      { x: 0, y: 1 },
+      { x: 0, y: -1 }
+    ].filter(d =>
+      !(d.x === -snake.dir.x && d.y === -snake.dir.y)
+    );
+
+    choices.sort((a, b) => {
+      const da = Math.abs(head.x + a.x - food.x) +
+                 Math.abs(head.y + a.y - food.y);
+      const db = Math.abs(head.x + b.x - food.x) +
+                 Math.abs(head.y + b.y - food.y);
+      return da - db + (Math.random() - 0.5) * 2;
+    });
+
+    for (const d of choices) {
+      const nx = head.x + d.x;
+      const ny = head.y + d.y;
+
+      if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
+
+      const ownBody = snake.body.slice(0, -1);
+      if (ownBody.some(p => p.x === nx && p.y === ny)) continue;
+
+      if (occupied(nx, ny, snake, false)) continue;
+
+      snake.dir = d;
+      return;
+    }
+
+    // পথ না পেলে সাপটি নতুন জায়গায় শুরু করবে।
+    respawnBot(snake);
+  }
+
+  function respawnBot(snake) {
+    const index = snakes.indexOf(snake);
+    snakes.splice(index, 1);
+    createBot();
+  }
+
+  function endGame() {
+    gameOver = true;
+    running = false;
+    clearInterval(loop);
+    loop = null;
+    message.textContent = "💥 গেম ওভার! আপনার স্কোর: " + score;
+    message.style.color = "#ff6577";
+    draw();
+  }
 
   function tick() {
     if (!running || gameOver) return;
 
-    direction = nextDirection;
-    const head = {
-      x: snake[0].x + direction.x,
-      y: snake[0].y + direction.y
+    direction = { ...nextDirection };
+
+    // খেলোয়াড়ের সাপ
+    const head = player.body[0];
+    const next = {
+      x: head.x + direction.x,
+      y: head.y + direction.y
     };
-    const eating = head.x === food.x && head.y === food.y;
-    const body = eating ? snake : snake.slice(0, -1);
+
+    const eating = next.x === food.x && next.y === food.y;
 
     if (
-      head.x < 0 || head.x >= cells ||
-      head.y < 0 || head.y >= cells ||
-      body.some(part => part.x === head.x && part.y === head.y)
+      next.x < 0 || next.x >= cols ||
+      next.y < 0 || next.y >= rows ||
+      player.body.slice(0, eating ? player.body.length : -1)
+        .some(p => p.x === next.x && p.y === next.y) ||
+      snakes.slice(1).some(s =>
+        s.body.some(p => p.x === next.x && p.y === next.y)
+      )
     ) {
       endGame();
       return;
     }
 
-    snake.unshift(head);
+    player.body.unshift(next);
 
     if (eating) {
       score++;
       box.querySelector("#snakeScore").textContent = score;
-
-      if (snake.length >= cells * cells) {
-        draw();
-        endGame();
-        message.textContent = "অসাধারণ! আপনি জিতেছেন!";
-        return;
-      }
-      placeFood();
+      createFood();
     } else {
-      snake.pop();
+      player.body.pop();
     }
 
+    // কম্পিউটারের অন্য সাপগুলো
+    snakes.slice(1).forEach(snake => {
+      if (gameOver || !snakes.includes(snake)) return;
+
+      botMove(snake);
+
+      if (!snakes.includes(snake)) return;
+
+      const h = snake.body[0];
+      const n = {
+        x: h.x + snake.dir.x,
+        y: h.y + snake.dir.y
+      };
+
+      const botEating = n.x === food.x && n.y === food.y;
+
+      if (
+        n.x < 0 || n.x >= cols ||
+        n.y < 0 || n.y >= rows ||
+        snake.body.slice(0, -1).some(p =>
+          p.x === n.x && p.y === n.y
+        ) ||
+        occupied(n.x, n.y, snake, false)
+      ) {
+        respawnBot(snake);
+        return;
+      }
+
+      snake.body.unshift(n);
+
+      if (botEating) {
+        createFood();
+      } else {
+        snake.body.pop();
+      }
+    });
+
     draw();
-    saveGame();
   }
 
-  document.addEventListener("keydown", keyHandler);
+  function restart() {
+    if (startSnakeGame.cleanup) startSnakeGame.cleanup();
+    startSnakeGame(box);
+  }
+
+  box.querySelector("#snakeRestart").onclick = restart;
 
   startSnakeGame.cleanup = () => {
-    stopLoop();
+    running = false;
+    clearInterval(loop);
     document.removeEventListener("keydown", keyHandler);
   };
 
-  if (!saved) placeFood();
   draw();
-
-  if (gameOver) {
-    message.textContent = "আগের খেলা শেষ। নতুন করে খেলুন। স্কোর: " + score;
-  } else if (paused) {
-    message.textContent = "আগের খেলা সংরক্ষিত। Resume চাপুন।";
-  } else {
-    resumeGame();
-  }
+  loop = setInterval(tick, 145);
 }
+
+
+  let direction = saved?.direction || { x: 1, y: 0 };
+  
 function startTicTacToe(box) {
 
   let board = ["", "", "", "", "", "", "", "", ""];
