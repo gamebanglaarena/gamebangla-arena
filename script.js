@@ -44,7 +44,7 @@ function play(name) {
   else if (name === "Target Tap") startTargetTap(box);
    else if (name === "Worm Arena") playWormArena();
  else if (name === "Snake Game") startSnakeGame(box);
-    if (startSnakeGame.cleanup) startSnakeGame.cleanup();
+ if (startSnakeGame.cleanup) startSnakeGame.cleanup();
     else if (name === "Tic Tac Toe") startTicTacToe(box);
   else {
     box.innerHTML = `
