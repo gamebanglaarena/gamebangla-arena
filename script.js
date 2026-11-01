@@ -43,6 +43,7 @@ function play(name) {
   else if (name === "Math Rush") startMathRush(box);
   else if (name === "Target Tap") startTargetTap(box);
    else if (name === "Worm Arena") playWormArena();
+    if (startSnakeGame.cleanup) startSnakeGame.cleanup();
     else if (name === "Tic Tac Toe") startTicTacToe(box);
   else {
     box.innerHTML = `
@@ -54,6 +55,7 @@ function play(name) {
 
 function closeGame() {
   stopGameTimer();
+ if (startSnakeGame.cleanup) startSnakeGame.cleanup();
   const modal = document.getElementById("gameModal");
   if (modal) modal.remove();
 }
