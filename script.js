@@ -42,9 +42,7 @@ function play(name) {
   if (name === "Quick Quiz") startQuickQuiz(box);
   else if (name === "Math Rush") startMathRush(box);
   else if (name === "Target Tap") startTargetTap(box);
-   else if (name === "Worm Arena") playWormArena();
- else if (name === "Snake Game") startSnakeGame(box);
- if (startSnakeGame.cleanup) startSnakeGame.cleanup();
+   else if (name === "Snake Game") startSnakeGame(box);
     else if (name === "Tic Tac Toe") startTicTacToe(box);
   else {
     box.innerHTML = `
@@ -56,7 +54,6 @@ function play(name) {
 
 function closeGame() {
   stopGameTimer();
- if (startSnakeGame.cleanup) startSnakeGame.cleanup();
   const modal = document.getElementById("gameModal");
   if (modal) modal.remove();
 }
@@ -459,7 +456,14 @@ function startChallenge() {
 
     if (index >= questions.length) {
       box.innerHTML = `
-        
+        <div style="background:#18213a;color:white;padding:20px;border-radius:12px;margin-top:15px;text-align:center">
+          <h3>🎉 আজকের চ্যালেঞ্জ শেষ!</h3>
+          <p>আপনার স্কোর: ${score}/${questions.length}</p>
+          <p>আগামীকাল আবার নতুন চ্যালেঞ্জ খেলুন!</p>
+          <button onclick="startChallenge()" style="padding:10px 16px;border:0;border-radius:8px">
+            আবার খেলুন
+          </button>
+        </div>
       `;
       return;
     }
@@ -514,416 +518,220 @@ function startChallenge() {
 
   showQuestion();
 }
+// ==============================
+// SNAKE GAME
+// ==============================
 
-// ==============================
-// SNAKE BATTLE - NEW GAME
-// ==============================
 
 function startSnakeGame(box) {
   if (startSnakeGame.cleanup) startSnakeGame.cleanup();
 
-  const cols = 24;
-  const rows = 24;
-  const cell = 15;
-  const canvasSize = cols * cell;
+  const saveKey = "gbaSnakeSave";
+  const cells = 20;
+  const size = 16;
 
-  let score = 0;
-  let running = true;
-  let gameOver = false;
-  let direction = { x: 1, y: 0 };
-  let nextDirection = { x: 1, y: 0 };
+  let saved = null;
+  try {
+    saved = JSON.parse(localStorage.getItem(saveKey) || "null");
+  } catch (e) {}
+
+  let snake = saved?.snake || [{ x: 8, y: 8 }, { x: 7, y: 8 }];
+  let food = saved?.food || { x: 4, y: 4 };
+  let direction = saved?.direction || { x: 1, y: 0 };
+  let nextDirection = { ...direction };
+  let score = saved?.score || 0;
+  let running = false;
+  let gameOver = saved?.gameOver || false;
   let loop = null;
-
-  const colors = [
-    "#ff5577", "#ffd166", "#b388ff",
-    "#ff914d", "#4dd0e1", "#f06292",
-    "#a3e635"
-  ];
-
-  const player = {
-    body: [
-      { x: 5, y: 12 },
-      { x: 4, y: 12 },
-      { x: 3, y: 12 },
-      { x: 2, y: 12 }
-    ],
-    color: "#35e6a1",
-    dir: { x: 1, y: 0 },
-    player: true
-  };
-
-  const snakes = [player];
-  let food = { x: 15, y: 12 };
-
-  function randomInt(max) {
-    return Math.floor(Math.random() * max);
-  }
-
-  function occupied(x, y, except, includeTail = true) {
-    return snakes.some(snake => {
-      if (snake === except) return false;
-
-      const parts = includeTail
-        ? snake.body
-        : snake.body.slice(0, -1);
-
-      return parts.some(p => p.x === x && p.y === y);
-    });
-  }
-
-  function createFood() {
-    let tries = 0;
-
-    do {
-      food = { x: randomInt(cols), y: randomInt(rows) };
-      tries++;
-    } while (
-      snakes.some(s => s.body.some(p =>
-        p.x === food.x && p.y === food.y
-      )) && tries < 1000
-    );
-  }
-
-  function createBot() {
-    for (let attempt = 0; attempt < 100; attempt++) {
-      const x = 4 + randomInt(cols - 8);
-      const y = 4 + randomInt(rows - 8);
-      const dir = Math.random() < 0.5
-        ? { x: 1, y: 0 }
-        : { x: 0, y: 1 };
-
-      const body = [
-        { x, y },
-        { x: x - dir.x, y: y - dir.y },
-        { x: x - dir.x * 2, y: y - dir.y * 2 },
-        { x: x - dir.x * 3, y: y - dir.y * 3 }
-      ];
-
-      const free = body.every(p =>
-        p.x >= 1 && p.x < cols - 1 &&
-        p.y >= 1 && p.y < rows - 1 &&
-        !occupied(p.x, p.y, null)
-      );
-
-      if (free) {
-        snakes.push({
-          body,
-          color: colors[snakes.length % colors.length],
-          dir,
-          player: false
-        });
-        return;
-      }
-    }
-  }
-
-  for (let i = 0; i < 6; i++) createBot();
-  createFood();
+  let paused = saved ? true : false;
 
   box.innerHTML = `
-    ${gameTitle("🐍 Snake Battle")}
-    <p>🍎 খাবার খান, বড় হন এবং অন্য সাপ থেকে বাঁচুন!</p>
-
-    <div style="display:flex;justify-content:space-around;flex-wrap:wrap">
-      <h3>⭐ স্কোর: <span id="snakeScore">0</span></h3>
-      <h3>🐍 সাপ: ৭টি</h3>
-    </div>
-
-    <canvas id="snakeCanvas"
-      width="360" height="360"
-      style="display:block;width:100%;max-width:360px;height:auto;
-      margin:auto;background:#101b2b;border:2px solid #35e6a1;
-      border-radius:12px;touch-action:none">
+  <div style="text-align:right">
+  <button onclick="closeGame()" 
+    style="background:#e74c3c;color:white;padding:10px 18px;border:0;border-radius:8px;font-size:20px">
+    ✕ বন্ধ করুন
+  </button>
+</div>
+    ${gameTitle("🐍 Snake Game")}
+    <p>খাবার খেয়ে সাপ বড় করুন!</p>
+    <h3>স্কোর: <span id="snakeScore">${score}</span></h3>
+    <canvas id="snakeCanvas" width="320" height="320"
+      style="width:100%;max-width:320px;background:#0d1426;border:2px solid #35d07f;border-radius:10px;touch-action:none">
     </canvas>
+    <p id="snakeMessage">খেলা শুরু করুন অথবা Pause করুন</p>
 
-    <h3 id="snakeMessage" style="color:#ffd166">
-      খেলা চলছে! খাবার সংগ্রহ করুন।
-    </h3>
-
-    <div style="display:grid;grid-template-columns:repeat(3,65px);
-      gap:7px;justify-content:center;margin:12px">
-      <span></span>
-      <button id="snakeUp">⬆️</button>
-      <span></span>
+    <div style="display:grid;grid-template-columns:repeat(3,65px);gap:8px;justify-content:center;margin-top:12px">
+      <span></span><button id="snakeUp">⬆️</button><span></span>
       <button id="snakeLeft">⬅️</button>
       <button id="snakeDown">⬇️</button>
       <button id="snakeRight">➡️</button>
     </div>
 
-    <button id="snakeRestart"
-      style="padding:12px 22px;background:#35e6a1;color:#102030;
-      border:0;border-radius:10px;font-weight:bold">
-      🔄 আবার খেলুন
-    </button>
+    <p style="margin-top:18px">
+      <button id="snakePause">⏸️ Pause</button>
+      <button id="snakeResume">▶️ Resume</button>
+    </p>
+    <button id="snakeRestart">🔄 নতুন করে খেলুন</button>
   `;
 
   const canvas = box.querySelector("#snakeCanvas");
   const ctx = canvas.getContext("2d");
   const message = box.querySelector("#snakeMessage");
+  const pauseBtn = box.querySelector("#snakePause");
+  const resumeBtn = box.querySelector("#snakeResume");
 
-  function changeDirection(x, y) {
+  box.querySelectorAll("button").forEach(btn => {
+    btn.style.cssText += ";padding:10px;border:0;border-radius:10px;font-size:16px;margin:3px";
+  });
+
+  function saveGame() {
+    try {
+      localStorage.setItem(saveKey, JSON.stringify({
+        snake, food, direction, score, gameOver
+      }));
+    } catch (e) {}
+  }
+
+  function placeFood() {
+    do {
+      food = {
+        x: Math.floor(Math.random() * cells),
+        y: Math.floor(Math.random() * cells)
+      };
+    } while (snake.some(part => part.x === food.x && part.y === food.y));
+  }
+
+  function draw() {
+    ctx.fillStyle = "#0d1426";
+    ctx.fillRect(0, 0, 320, 320);
+
+    ctx.fillStyle = "#ff4757";
+    ctx.fillRect(food.x * size, food.y * size, size - 1, size - 1);
+
+    snake.forEach((part, i) => {
+      ctx.fillStyle = i === 0 ? "#7bed9f" : "#2ed573";
+      ctx.fillRect(part.x * size, part.y * size, size - 1, size - 1);
+    });
+  }
+
+  function stopLoop() {
+    running = false;
+    if (loop) clearInterval(loop);
+    loop = null;
+  }
+
+  function pauseGame() {
     if (gameOver) return;
+    stopLoop();
+    paused = true;
+    message.textContent = "খেলা Pause করা আছে। Resume চাপুন।";
+    saveGame();
+  }
+
+  function resumeGame() {
+    if (gameOver || running) return;
+    paused = false;
+    running = true;
+    message.textContent = "খেলা চলছে!";
+    loop = setInterval(tick, 150);
+    saveGame();
+  }
+
+  function endGame() {
+    stopLoop();
+    gameOver = true;
+    paused = false;
+    message.textContent = "খেলা শেষ! আপনার স্কোর: " + score;
+    saveGame();
+  }
+
+  function setDirection(x, y) {
     if (x === -direction.x && y === -direction.y) return;
     nextDirection = { x, y };
   }
 
-  box.querySelector("#snakeUp").onclick =
-    () => changeDirection(0, -1);
-  box.querySelector("#snakeDown").onclick =
-    () => changeDirection(0, 1);
-  box.querySelector("#snakeLeft").onclick =
-    () => changeDirection(-1, 0);
-  box.querySelector("#snakeRight").onclick =
-    () => changeDirection(1, 0);
-
   function keyHandler(e) {
     const keys = {
-      ArrowUp: [0, -1],
-      ArrowDown: [0, 1],
-      ArrowLeft: [-1, 0],
-      ArrowRight: [1, 0],
-      w: [0, -1],
-      s: [0, 1],
-      a: [-1, 0],
-      d: [1, 0]
+      ArrowUp: [0, -1], ArrowDown: [0, 1],
+      ArrowLeft: [-1, 0], ArrowRight: [1, 0],
+      w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0]
     };
-
     if (keys[e.key]) {
       e.preventDefault();
-      changeDirection(...keys[e.key]);
+      setDirection(...keys[e.key]);
     }
   }
 
-  let touchStart = null;
-
-  canvas.addEventListener("pointerdown", e => {
-    touchStart = { x: e.clientX, y: e.clientY };
-  });
-
-  canvas.addEventListener("pointerup", e => {
-    if (!touchStart) return;
-
-    const dx = e.clientX - touchStart.x;
-    const dy = e.clientY - touchStart.y;
-
-    if (Math.max(Math.abs(dx), Math.abs(dy)) > 15) {
-      if (Math.abs(dx) > Math.abs(dy)) {
-        changeDirection(dx > 0 ? 1 : -1, 0);
-      } else {
-        changeDirection(0, dy > 0 ? 1 : -1);
-      }
-    }
-
-    touchStart = null;
-  });
-
-  document.addEventListener("keydown", keyHandler);
-
-  function drawSnake(snake) {
-    snake.body.forEach((part, i) => {
-      const x = part.x * cell;
-      const y = part.y * cell;
-
-      ctx.fillStyle = snake.color;
-      ctx.beginPath();
-      ctx.roundRect(x + 1, y + 1, cell - 2, cell - 2, 5);
-      ctx.fill();
-
-      if (i === 0) {
-        ctx.fillStyle = "#ffffff";
-        ctx.beginPath();
-        ctx.arc(x + 5, y + 5, 2, 0, Math.PI * 2);
-        ctx.arc(x + 11, y + 5, 2, 0, Math.PI * 2);
-        ctx.fill();
-      }
-    });
-  }
-
-  function draw() {
-    ctx.fillStyle = "#101b2b";
-    ctx.fillRect(0, 0, canvasSize, canvasSize);
-
-    ctx.strokeStyle = "rgba(255,255,255,.045)";
-    for (let x = 0; x <= canvasSize; x += cell) {
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, canvasSize);
-      ctx.stroke();
-    }
-    for (let y = 0; y <= canvasSize; y += cell) {
-      ctx.beginPath();
-      ctx.moveTo(0, y);
-      ctx.lineTo(canvasSize, y);
-      ctx.stroke();
-    }
-
-    ctx.fillStyle = "#ffcf40";
-    ctx.beginPath();
-    ctx.arc(
-      food.x * cell + cell / 2,
-      food.y * cell + cell / 2,
-      6, 0, Math.PI * 2
-    );
-    ctx.fill();
-
-    ctx.font = "12px Arial";
-    ctx.fillText("🍎", food.x * cell + 2, food.y * cell + 12);
-
-    snakes.forEach(drawSnake);
-  }
-
-  function botMove(snake) {
-    const head = snake.body[0];
-
-    const choices = [
-      { x: 1, y: 0 },
-      { x: -1, y: 0 },
-      { x: 0, y: 1 },
-      { x: 0, y: -1 }
-    ].filter(d =>
-      !(d.x === -snake.dir.x && d.y === -snake.dir.y)
-    );
-
-    choices.sort((a, b) => {
-      const da = Math.abs(head.x + a.x - food.x) +
-                 Math.abs(head.y + a.y - food.y);
-      const db = Math.abs(head.x + b.x - food.x) +
-                 Math.abs(head.y + b.y - food.y);
-      return da - db + (Math.random() - 0.5) * 2;
-    });
-
-    for (const d of choices) {
-      const nx = head.x + d.x;
-      const ny = head.y + d.y;
-
-      if (nx < 0 || nx >= cols || ny < 0 || ny >= rows) continue;
-
-      const ownBody = snake.body.slice(0, -1);
-      if (ownBody.some(p => p.x === nx && p.y === ny)) continue;
-
-      if (occupied(nx, ny, snake, false)) continue;
-
-      snake.dir = d;
-      return;
-    }
-
-    // পথ না পেলে সাপটি নতুন জায়গায় শুরু করবে।
-    respawnBot(snake);
-  }
-
-  function respawnBot(snake) {
-    const index = snakes.indexOf(snake);
-    snakes.splice(index, 1);
-    createBot();
-  }
-
-  function endGame() {
-    gameOver = true;
-    running = false;
-    clearInterval(loop);
-    loop = null;
-    message.textContent = "💥 গেম ওভার! আপনার স্কোর: " + score;
-    message.style.color = "#ff6577";
-    draw();
-  }
+  box.querySelector("#snakeUp").onclick = () => setDirection(0, -1);
+  box.querySelector("#snakeDown").onclick = () => setDirection(0, 1);
+  box.querySelector("#snakeLeft").onclick = () => setDirection(-1, 0);
+  box.querySelector("#snakeRight").onclick = () => setDirection(1, 0);
+  pauseBtn.onclick = pauseGame;
+  resumeBtn.onclick = resumeGame;
+  box.querySelector("#snakeRestart").onclick = () => {
+    try { localStorage.removeItem(saveKey); } catch (e) {}
+    startSnakeGame(box);
+  };
 
   function tick() {
     if (!running || gameOver) return;
 
-    direction = { ...nextDirection };
-
-    // খেলোয়াড়ের সাপ
-    const head = player.body[0];
-    const next = {
-      x: head.x + direction.x,
-      y: head.y + direction.y
+    direction = nextDirection;
+    const head = {
+      x: snake[0].x + direction.x,
+      y: snake[0].y + direction.y
     };
-
-    const eating = next.x === food.x && next.y === food.y;
+    const eating = head.x === food.x && head.y === food.y;
+    const body = eating ? snake : snake.slice(0, -1);
 
     if (
-      next.x < 0 || next.x >= cols ||
-      next.y < 0 || next.y >= rows ||
-      player.body.slice(0, eating ? player.body.length : -1)
-        .some(p => p.x === next.x && p.y === next.y) ||
-      snakes.slice(1).some(s =>
-        s.body.some(p => p.x === next.x && p.y === next.y)
-      )
+      head.x < 0 || head.x >= cells ||
+      head.y < 0 || head.y >= cells ||
+      body.some(part => part.x === head.x && part.y === head.y)
     ) {
       endGame();
       return;
     }
 
-    player.body.unshift(next);
+    snake.unshift(head);
 
     if (eating) {
       score++;
       box.querySelector("#snakeScore").textContent = score;
-      createFood();
-    } else {
-      player.body.pop();
-    }
 
-    // কম্পিউটারের অন্য সাপগুলো
-    snakes.slice(1).forEach(snake => {
-      if (gameOver || !snakes.includes(snake)) return;
-
-      botMove(snake);
-
-      if (!snakes.includes(snake)) return;
-
-      const h = snake.body[0];
-      const n = {
-        x: h.x + snake.dir.x,
-        y: h.y + snake.dir.y
-      };
-
-      const botEating = n.x === food.x && n.y === food.y;
-
-      if (
-        n.x < 0 || n.x >= cols ||
-        n.y < 0 || n.y >= rows ||
-        snake.body.slice(0, -1).some(p =>
-          p.x === n.x && p.y === n.y
-        ) ||
-        occupied(n.x, n.y, snake, false)
-      ) {
-        respawnBot(snake);
+      if (snake.length >= cells * cells) {
+        draw();
+        endGame();
+        message.textContent = "অসাধারণ! আপনি জিতেছেন!";
         return;
       }
-
-      snake.body.unshift(n);
-
-      if (botEating) {
-        createFood();
-      } else {
-        snake.body.pop();
-      }
-    });
+      placeFood();
+    } else {
+      snake.pop();
+    }
 
     draw();
+    saveGame();
   }
 
-  function restart() {
-    if (startSnakeGame.cleanup) startSnakeGame.cleanup();
-    startSnakeGame(box);
-  }
-
-  box.querySelector("#snakeRestart").onclick = restart;
+  document.addEventListener("keydown", keyHandler);
 
   startSnakeGame.cleanup = () => {
-    running = false;
-    clearInterval(loop);
+    stopLoop();
     document.removeEventListener("keydown", keyHandler);
   };
 
+  if (!saved) placeFood();
   draw();
-  loop = setInterval(tick, 145);
+
+  if (gameOver) {
+    message.textContent = "আগের খেলা শেষ। নতুন করে খেলুন। স্কোর: " + score;
+  } else if (paused) {
+    message.textContent = "আগের খেলা সংরক্ষিত। Resume চাপুন।";
+  } else {
+    resumeGame();
+  }
 }
-
-
-  let direction = saved?.direction || { x: 1, y: 0 };
-  
 function startTicTacToe(box) {
 
   let board = ["", "", "", "", "", "", "", "", ""];
@@ -1008,181 +816,3 @@ function startTicTacToe(box) {
 
   drawBoard();
 }
-
-/* ===== Worm Arena: নতুন গেম ===== */
-(function () {
-  const wormGame = {
-    start() {
-      const old = document.getElementById("wormArenaGame");
-      if (old) old.remove();
-
-      const wrap = document.createElement("div");
-      wrap.id = "wormArenaGame";
-      wrap.style.cssText =
-        "position:fixed;inset:0;z-index:99999;background:#101827;color:white;display:flex;flex-direction:column;font-family:Arial,sans-serif;padding:10px;box-sizing:border-box";
-
-      wrap.innerHTML = `
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:8px">
-          <b style="font-size:22px;color:#67f7b5">🐛 Worm Arena</b>
-          <button id="wormClose" style="padding:10px;border:0;border-radius:8px">✕ বন্ধ</button>
-        </div>
-        <div style="display:flex;justify-content:space-around;padding:10px">
-          <b>⭐ স্কোর: <span id="wormScore">0</span></b>
-          <b>🪙 কয়েন: <span id="wormCoins">0</span></b>
-        </div>
-        <canvas id="wormCanvas" style="width:100%;flex:1;min-height:200px;background:#172c38;border-radius:12px;touch-action:none"></canvas>
-        <div style="text-align:center;padding:8px">খাবার খান, কয়েন নিন, অন্য ওয়ার্ম থেকে দূরে থাকুন!</div>
-        <div style="display:flex;justify-content:center;gap:16px;padding:6px">
-          <button id="wormLeft">⬅️</button>
-          <button id="wormUp">⬆️</button>
-          <button id="wormDown">⬇️</button>
-          <button id="wormRight">➡️</button>
-        </div>
-      `;
-
-      document.body.appendChild(wrap);
-
-      const canvas = wrap.querySelector("#wormCanvas");
-      const ctx = canvas.getContext("2d");
-      const scoreText = wrap.querySelector("#wormScore");
-      const coinsText = wrap.querySelector("#wormCoins");
-
-      let width, height, score = 0, coins = 0;
-      let running = true;
-      let direction = { x: 1, y: 0 };
-      let player = [{ x: 150, y: 120 }, { x: 130, y: 120 }, { x: 110, y: 120 }];
-      let food = { x: 250, y: 160 };
-      let coin = { x: 320, y: 220 };
-      let bots = [
-        { x: 260, y: 100, color: "#ff648c", dx: -1, dy: 0 },
-        { x: 100, y: 230, color: "#ffd166", dx: 1, dy: 0 }
-      ];
-
-      function resize() {
-        const rect = canvas.getBoundingClientRect();
-        const dpr = window.devicePixelRatio || 1;
-        width = Math.max(240, rect.width);
-        height = Math.max(200, rect.height);
-        canvas.width = width * dpr;
-        canvas.height = height * dpr;
-        ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      }
-
-      function randomPoint() {
-        return {
-          x: 15 + Math.random() * Math.max(10, width - 30),
-          y: 15 + Math.random() * Math.max(10, height - 30)
-        };
-      }
-
-      function drawCircle(p, color, radius) {
-        ctx.beginPath();
-        ctx.fillStyle = color;
-        ctx.arc(p.x, p.y, radius, 0, Math.PI * 2);
-        ctx.fill();
-      }
-
-      function drawWorm(points, color) {
-        points.forEach((p, i) => drawCircle(p, color, i === 0 ? 10 : 8));
-        drawCircle(
-          { x: points[0].x + direction.x * 3, y: points[0].y + direction.y * 3 },
-          "#ffffff",
-          2
-        );
-      }
-
-      function turn(x, y) {
-        if (direction.x + x === 0 && direction.y + y === 0) return;
-        direction = { x, y };
-      }
-
-      wrap.querySelector("#wormLeft").onclick = () => turn(-1, 0);
-      wrap.querySelector("#wormRight").onclick = () => turn(1, 0);
-      wrap.querySelector("#wormUp").onclick = () => turn(0, -1);
-      wrap.querySelector("#wormDown").onclick = () => turn(0, 1);
-      wrap.querySelector("#wormClose").onclick = () => {
-        running = false;
-        wrap.remove();
-      };
-
-      canvas.addEventListener("pointerdown", e => {
-        const r = canvas.getBoundingClientRect();
-        const x = e.clientX - r.left - player[0].x;
-        const y = e.clientY - r.top - player[0].y;
-        if (Math.abs(x) > Math.abs(y)) turn(x > 0 ? 1 : -1, 0);
-        else turn(0, y > 0 ? 1 : -1);
-      });
-
-      function frame() {
-        if (!running || !wrap.isConnected) return;
-
-        ctx.clearRect(0, 0, width, height);
-
-        const head = player[0];
-        const next = {
-          x: head.x + direction.x * 3,
-          y: head.y + direction.y * 3
-        };
-
-        if (next.x < 5) next.x = width - 5;
-        if (next.x > width - 5) next.x = 5;
-        if (next.y < 5) next.y = height - 5;
-        if (next.y > height - 5) next.y = 5;
-
-        player.unshift(next);
-        if (player.length > 3 + Math.floor(score / 2)) player.pop();
-
-        if (Math.hypot(next.x - food.x, next.y - food.y) < 17) {
-          score++;
-          scoreText.textContent = score;
-          player.push({ ...player[player.length - 1] });
-          food = randomPoint();
-        }
-
-        if (Math.hypot(next.x - coin.x, next.y - coin.y) < 17) {
-          coins++;
-          coinsText.textContent = coins;
-          coin = randomPoint();
-        }
-
-        bots.forEach(bot => {
-          bot.x += bot.dx * 1.2;
-          bot.y += bot.dy * 1.2;
-
-          if (bot.x < 15 || bot.x > width - 15) bot.dx *= -1;
-          if (bot.y < 15 || bot.y > height - 15) bot.dy *= -1;
-
-          if (Math.random() < 0.025) {
-            if (Math.random() < 0.5) {
-              bot.dx = Math.random() < 0.5 ? -1 : 1;
-              bot.dy = 0;
-            } else {
-              bot.dy = Math.random() < 0.5 ? -1 : 1;
-              bot.dx = 0;
-            }
-          }
-          drawCircle(bot, bot.color, 10);
-        });
-
-        drawCircle(food, "#6cff7d", 7);
-        drawCircle(coin, "#ffdf46", 7);
-        drawWorm(player, "#35d6ff");
-
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "12px Arial";
-        ctx.fillText("🍎", food.x - 6, food.y + 4);
-        ctx.fillText("🪙", coin.x - 7, coin.y + 4);
-
-        setTimeout(() => requestAnimationFrame(frame), 25);
-      }
-
-      resize();
-      window.addEventListener("resize", resize);
-      frame();
-    }
-  };
-
-  window.playWormArena = function () {
-    wormGame.start();
-  };
-})();
