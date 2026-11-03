@@ -1,7 +1,6 @@
-
 /* =====================================================
    GAMEBANGLA ARENA - BUBBLE SHOOTER POP
-   Complete replacement code
+   Complete replacement version
    ===================================================== */
 
 (function () {
@@ -10,15 +9,17 @@
   const W = 360;
   const H = 560;
   const COLS = 10;
-  const MAX_ROWS = 16;
-  const R = 15;
+  const MAX_ROWS = 18;
+  const R = 14;
   const GAP = 2;
   const PITCH = R * 2 + GAP;
+  const SHOOTER_X = W / 2;
+  const SHOOTER_Y = 500;
   const DANGER_Y = 435;
-  const SAVE_KEY = "gbaBubbleShooterProgressV2";
+  const SAVE_KEY = "gbaBubbleShooterProgressV3";
 
   const COLORS = [
-    "#ff303f",
+    "#ff3045",
     "#168bff",
     "#ffd52e",
     "#19d66b",
@@ -29,40 +30,47 @@
   let root = null;
   let canvas = null;
   let ctx = null;
-  let animationId = null;
+  let animationId = 0;
   let lastTime = 0;
+  let running = false;
+  let destroyed = false;
+
   let grid = [];
-  let particles = [];
-  let confetti = [];
   let projectile = null;
   let aiming = false;
-  let aimPoint = { x: W / 2, y: 250 };
-  let pointerId = null;
-  let currentColor = 0;
-  let nextColor = 1;
+  let pointerStart = null;
+  let aimPoint = { x: W / 2, y: 200 };
+
   let level = 1;
   let score = 0;
-  let bestScore = 0;
+  let best = 0;
   let soundOn = true;
-  let gameState = "playing";
-  let menuOpen = false;
-  let confirmOpen = false;
+  let currentColor = COLORS[0];
+  let nextColor = COLORS[1];
+
+  let settingsOpen = false;
+  let restartConfirmOpen = false;
+  let levelComplete = false;
+  let gameOver = false;
+  let shotCount = 0;
+
+  let particles = [];
   let lastShotTime = 0;
 
-  const rand = n => Math.floor(Math.random() * n);
-  const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+  let audioContext = null;
 
-  function loadProgress() {
+  function loadSave() {
     try {
-      const saved = JSON.parse(localStorage.getItem(SAVE_KEY) || "{}");
-      level = Math.max(1, Number(saved.level) || 1);
-      score = Math.max(0, Number(saved.score) || 0);
-      bestScore = Math.max(0, Number(saved.bestScore) || 0);
-      soundOn = saved.soundOn !== false;
+      const data = JSON.parse(localStorage.getItem(SAVE_KEY) || "{}");
+      level = Math.max(1, Number(data.level) || 1);
+      score = Math.max(0, Number(data.score) || 0);
+      best = Math.max(0, Number(data.best) || 0);
+      soundOn = data.soundOn !== false;
     } catch (e) {
       level = 1;
       score = 0;
-      bestScore = 0;
+      best = 0;
+      soundOn = true;
     }
   }
 
@@ -71,599 +79,122 @@
       localStorage.setItem(SAVE_KEY, JSON.stringify({
         level,
         score,
-        bestScore,
+        best,
         soundOn
       }));
     } catch (e) {}
   }
 
-  function activeColorCount() {
-    return Math.min(6, 3 + Math.floor(level / 2));
-  }
-
-  function startingRows() {
-    return Math.min(14, 5 + Math.floor((level - 1) * 0.65));
-  }
-
-  function activeColors() {
-    return COLORS.slice(0, activeColorCount());
-  }
-
-  function randomColor() {
-    const colors = activeColors();
-    return colors[rand(colors.length)];
-  }
-
-  function getCellPosition(row, col) {
-    const baseX = (W - ((COLS - 1) * PITCH + R * 2)) / 2;
-    return {
-      x: baseX + R + col * PITCH + (row % 2 ? PITCH / 2 : 0),
-      y: 25 + row * (PITCH - 2)
-    };
-  }
-
-  function createGrid() {
-    grid = Array.from({ length: MAX_ROWS }, () =>
-      Array(COLS).fill(null)
-    );
-
-    const rows = startingRows();
-
-    for (let r = 0; r < rows; r++) {
-      for (let c = 0; c < COLS; c++) {
-        // A few spaces make the board pattern more interesting.
-        const holeChance = level < 3 ? 0.04 : Math.min(0.15, 0.04 + level * 0.002);
-
-        if (Math.random() > holeChance || r === 0) {
-          grid[r][c] = { color: randomColor() };
-        }
-      }
-    }
-
-    // Ensure every available color exists on the board.
-    const colors = activeColors();
-    colors.forEach((color, i) => {
-      if (grid[0][i]) grid[0][i].color = color;
-    });
-  }
-
-  function playSound(frequency = 440, duration = 0.09, type = "sine") {
+  function playSound(frequency, duration, type) {
     if (!soundOn) return;
 
     try {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (!AudioCtx) return;
 
-      const audio = new AudioCtx();
-      const oscillator = audio.createOscillator();
-      const gain = audio.createGain();
+      if (!audioContext) audioContext = new AudioCtx();
 
-      oscillator.type = type;
-      oscillator.frequency.setValueAtTime(frequency, audio.currentTime);
-      gain.gain.setValueAtTime(0.08, audio.currentTime);
+      if (audioContext.state === "suspended") {
+        audioContext.resume();
+      }
+
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+
+      oscillator.type = type || "sine";
+      oscillator.frequency.value = frequency;
+      gain.gain.setValueAtTime(0.08, audioContext.currentTime);
       gain.gain.exponentialRampToValueAtTime(
         0.001,
-        audio.currentTime + duration
+        audioContext.currentTime + duration
       );
 
       oscillator.connect(gain);
-      gain.connect(audio.destination);
+      gain.connect(audioContext.destination);
+
       oscillator.start();
-      oscillator.stop(audio.currentTime + duration);
-
-      oscillator.onended = () => audio.close();
+      oscillator.stop(audioContext.currentTime + duration);
     } catch (e) {}
   }
 
-  function updateInfo() {
-    if (!root) return;
-
-    const levelText = root.querySelector(".bs-level");
-    const scoreText = root.querySelector(".bs-score");
-    const bestText = root.querySelector(".bs-best");
-    const soundText = root.querySelector(".bs-sound");
-
-    if (levelText) levelText.textContent = level;
-    if (scoreText) scoreText.textContent = score;
-    if (bestText) bestText.textContent = bestScore;
-    if (soundText) soundText.textContent = soundOn ? "🔊 Sound On" : "🔇 Sound Off";
-
-    const currentBall = root.querySelector(".bs-current-ball");
-    const nextBall = root.querySelector(".bs-next-ball");
-
-    if (currentBall) currentBall.style.background = COLORS[currentColor];
-    if (nextBall) nextBall.style.background = COLORS[nextColor];
+  function randomColor(list) {
+    return list[Math.floor(Math.random() * list.length)];
   }
 
-  function createInterface(box) {
-    box.innerHTML = `
-      <div class="bs-game">
-        <style>
-          .bs-game {
-            width:100%;
-            max-width:420px;
-            margin:0 auto;
-            padding:10px;
-            box-sizing:border-box;
-            color:#fff;
-            font-family:Arial,sans-serif;
-            background:linear-gradient(145deg,#101b38,#182c52);
-            border-radius:18px;
-            position:relative;
-            overflow:hidden;
-          }
-          .bs-game * { box-sizing:border-box; }
-          .bs-top {
-            display:flex;
-            justify-content:space-between;
-            align-items:center;
-            gap:6px;
-            margin-bottom:9px;
-          }
-          .bs-stat {
-            flex:1;
-            text-align:center;
-            padding:7px 3px;
-            border-radius:9px;
-            background:#263d67;
-            font-size:12px;
-            font-weight:bold;
-          }
-          .bs-stat strong {
-            display:block;
-            font-size:17px;
-            margin-top:3px;
-            color:#ffe36a;
-          }
-          .bs-settings {
-            border:0;
-            border-radius:10px;
-            background:#ffca3a;
-            color:#18213a;
-            font-size:22px;
-            width:43px;
-            height:43px;
-            cursor:pointer;
-          }
-          .bs-canvas-wrap {
-            position:relative;
-            width:100%;
-            border-radius:13px;
-            overflow:hidden;
-            background:linear-gradient(#152c56,#101b37);
-            border:2px solid #496da5;
-          }
-          .bs-canvas {
-            display:block;
-            width:100%;
-            height:auto;
-            touch-action:none;
-            user-select:none;
-          }
-          .bs-controls {
-            display:flex;
-            justify-content:center;
-            align-items:center;
-            gap:12px;
-            margin-top:10px;
-          }
-          .bs-ball-info {
-            display:flex;
-            align-items:center;
-            gap:7px;
-            background:#263d67;
-            border-radius:12px;
-            padding:7px 10px;
-            font-size:11px;
-            font-weight:bold;
-          }
-          .bs-ball {
-            width:25px;
-            height:25px;
-            border-radius:50%;
-            border:2px solid #ffffffaa;
-            box-shadow:inset -4px -5px 7px #0005,inset 4px 4px 7px #fff8,0 0 8px #fff5;
-          }
-          .bs-change {
-            border:0;
-            padding:11px 13px;
-            border-radius:10px;
-            background:#12c98a;
-            color:#062d24;
-            font-weight:bold;
-            font-size:13px;
-            cursor:pointer;
-          }
-          .bs-hint {
-            text-align:center;
-            color:#c8d9f7;
-            font-size:11px;
-            margin-top:9px;
-          }
-          .bs-overlay {
-            position:absolute;
-            inset:0;
-            z-index:5;
-            display:flex;
-            align-items:center;
-            justify-content:center;
-            padding:15px;
-            background:#071329dd;
-          }
-          .bs-panel {
-            width:100%;
-            max-width:290px;
-            text-align:center;
-            padding:20px 15px;
-            border-radius:17px;
-            background:linear-gradient(145deg,#294b7d,#172b50);
-            border:2px solid #7db8ff;
-            box-shadow:0 10px 35px #0008;
-          }
-          .bs-panel h2 {
-            margin:0 0 12px;
-            font-size:25px;
-            color:#ffe36a;
-          }
-          .bs-panel p {
-            font-size:14px;
-            line-height:1.6;
-          }
-          .bs-menu-btn {
-            display:block;
-            width:100%;
-            border:0;
-            border-radius:10px;
-            padding:12px;
-            margin-top:9px;
-            font-weight:bold;
-            font-size:14px;
-            cursor:pointer;
-            background:#e6f0ff;
-            color:#152748;
-          }
-          .bs-primary {
-            background:#ffcf3d;
-            color:#342400;
-          }
-          .bs-danger {
-            background:#ff626e;
-            color:#fff;
-          }
-          .bs-hidden { display:none !important; }
-          .bs-confetti {
-            position:absolute;
-            top:-15px;
-            width:9px;
-            height:14px;
-            border-radius:2px;
-            animation:bs-fall 2.8s linear infinite;
-            z-index:1;
-          }
-          @keyframes bs-fall {
-            0% { transform:translateY(-20px) rotate(0deg); opacity:1; }
-            100% { transform:translateY(580px) rotate(720deg); opacity:0; }
-          }
-          .bs-celebrate {
-            animation:bs-pop .5s ease-in-out infinite alternate;
-          }
-          @keyframes bs-pop {
-            from { transform:scale(1); }
-            to { transform:scale(1.06); }
-          }
-          @media (max-width:380px) {
-            .bs-stat { font-size:10px; }
-            .bs-stat strong { font-size:15px; }
-            .bs-controls { gap:6px; }
-            .bs-ball-info { padding:6px; }
-            .bs-change { padding:10px 8px; }
-          }
-        </style>
-
-        <div class="bs-top">
-          <div class="bs-stat">LEVEL<strong class="bs-level">1</strong></div>
-          <div class="bs-stat">SCORE<strong class="bs-score">0</strong></div>
-          <div class="bs-stat">BEST<strong class="bs-best">0</strong></div>
-          <button class="bs-settings" type="button" aria-label="Settings">⚙️</button>
-        </div>
-
-        <div class="bs-canvas-wrap">
-          <canvas class="bs-canvas" width="360" height="560"></canvas>
-
-          <div class="bs-overlay bs-menu bs-hidden">
-            <div class="bs-panel">
-              <h2>⚙️ Settings</h2>
-              <button class="bs-menu-btn bs-sound-toggle">🔊 Sound On</button>
-              <button class="bs-menu-btn bs-restart-open bs-danger">Restart Game</button>
-              <button class="bs-menu-btn bs-menu-close">Back to Game</button>
-            </div>
-          </div>
-
-          <div class="bs-overlay bs-confirm bs-hidden">
-            <div class="bs-panel">
-              <h2>Restart?</h2>
-              <p>আপনি কি সত্যিই নতুন করে খেলা শুরু করতে চান?</p>
-              <button class="bs-menu-btn bs-primary bs-confirm-yes">হ্যাঁ, Restart</button>
-              <button class="bs-menu-btn bs-menu-close">না, ফিরে যান</button>
-            </div>
-          </div>
-
-          <div class="bs-overlay bs-level-complete bs-hidden">
-            <div class="bs-panel">
-              <div class="bs-celebrate" style="font-size:36px">🎉🏆🎉</div>
-              <h2>LEVEL COMPLETE!</h2>
-              <p>অসাধারণ! আপনি Level <span class="bs-completed-level"></span> শেষ করেছেন।</p>
-              <p>আপনার স্কোর: <strong class="bs-completed-score">0</strong></p>
-              <button class="bs-menu-btn bs-primary bs-next-level">Next Level ➜</button>
-            </div>
-          </div>
-
-          <div class="bs-overlay bs-game-over bs-hidden">
-            <div class="bs-panel">
-              <div style="font-size:38px">😢</div>
-              <h2>GAME OVER</h2>
-              <p>আপনার স্কোর: <strong class="bs-over-score">0</strong></p>
-              <p>Settings থেকে Restart করে আবার খেলুন।</p>
-              <button class="bs-menu-btn bs-primary bs-over-settings">⚙️ Settings</button>
-            </div>
-          </div>
-        </div>
-
-        <div class="bs-controls">
-          <div class="bs-ball-info">
-            <span>NOW</span>
-            <span class="bs-ball bs-current-ball"></span>
-          </div>
-          <button class="bs-change" type="button">🔄 বল বদল</button>
-          <div class="bs-ball-info">
-            <span>NEXT</span>
-            <span class="bs-ball bs-next-ball"></span>
-          </div>
-        </div>
-
-        <div class="bs-hint">
-          বলের কাছে আঙুল চেপে ধরে লক্ষ্য ঠিক করুন, ছেড়ে দিলে বল ছুটবে।
-        </div>
-      </div>
-    `;
-
-    root = box.querySelector(".bs-game");
-    canvas = root.querySelector(".bs-canvas");
-    ctx = canvas.getContext("2d");
-
-    root.querySelector(".bs-settings").addEventListener("click", openSettings);
-    root.querySelector(".bs-change").addEventListener("click", changeBall);
-    root.querySelector(".bs-sound-toggle").addEventListener("click", toggleSound);
-    root.querySelector(".bs-restart-open").addEventListener("click", openRestartConfirm);
-    root.querySelector(".bs-confirm-yes").addEventListener("click", restartGame);
-    root.querySelector(".bs-next-level").addEventListener("click", nextLevel);
-    root.querySelector(".bs-over-settings").addEventListener("click", openSettings);
-
-    root.querySelectorAll(".bs-menu-close").forEach(btn => {
-      btn.addEventListener("click", closePanels);
-    });
-
-    canvas.addEventListener("pointerdown", onPointerDown);
-    canvas.addEventListener("pointermove", onPointerMove);
-    canvas.addEventListener("pointerup", onPointerUp);
-    canvas.addEventListener("pointercancel", onPointerCancel);
-    canvas.addEventListener("lostpointercapture", onPointerCancel);
-
-    updateInfo();
+  function activeColors() {
+    const count = Math.min(6, 3 + Math.floor((level - 1) / 2));
+    return COLORS.slice(0, count);
   }
 
-  function showPanel(selector) {
-    if (!root) return;
-    root.querySelectorAll(".bs-overlay").forEach(el => el.classList.add("bs-hidden"));
-    const panel = root.querySelector(selector);
-    if (panel) panel.classList.remove("bs-hidden");
+  function rowX(row, col) {
+    return R + col * PITCH + (row % 2 ? PITCH / 2 : 0);
   }
 
-  function closePanels() {
-    if (!root) return;
-    root.querySelectorAll(".bs-overlay").forEach(el => el.classList.add("bs-hidden"));
-    menuOpen = false;
-    confirmOpen = false;
-    if (gameState === "playing") playSound(520, 0.05);
+  function rowY(row) {
+    return R + row * PITCH;
   }
 
-  function openSettings() {
-    if (gameState === "levelcomplete" || gameState === "gameover") {
-      // Settings can still be opened from the game-over panel.
+  function makeEmptyGrid() {
+    grid = [];
+    for (let r = 0; r < MAX_ROWS; r++) {
+      grid.push(new Array(COLS).fill(null));
     }
-    menuOpen = true;
-    showPanel(".bs-menu");
   }
 
-  function openRestartConfirm() {
-    confirmOpen = true;
-    showPanel(".bs-confirm");
+  function startingRows() {
+    return Math.min(14, 5 + Math.floor((level - 1) * 0.65));
   }
 
-  function toggleSound() {
-    soundOn = !soundOn;
-    updateInfo();
-    saveProgress();
-    const btn = root.querySelector(".bs-sound-toggle");
-    btn.textContent = soundOn ? "🔊 Sound On" : "🔇 Sound Off";
-    if (soundOn) playSound(660, 0.1);
-  }
+  function createGrid() {
+    makeEmptyGrid();
 
-  function changeBall() {
-    if (gameState !== "playing" || projectile || aiming) return;
+    const colors = activeColors();
+    const rows = startingRows();
 
-    const temp = currentColor;
-    currentColor = nextColor;
-    nextColor = temp;
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < COLS; c++) {
+        // ওপরের সারিগুলোতে কিছু ফাঁকা জায়গা থাকবে।
+        const emptyChance = r < 2 ? 0.08 : 0.13;
 
-    updateInfo();
-    playSound(620, 0.07);
-  }
+        if (Math.random() > emptyChance) {
+          grid[r][c] = randomColor(colors);
+        }
+      }
+    }
 
-  function restartGame() {
-    level = 1;
-    score = 0;
-    currentColor = 0;
-    nextColor = 1;
-    projectile = null;
-    particles = [];
-    gameState = "playing";
-    createGrid();
-    closePanels();
-    saveProgress();
-    updateInfo();
-    playSound(520, 0.12);
-  }
-
-  function nextLevel() {
-    if (gameState !== "levelcomplete") return;
-
-    level++;
-    gameState = "playing";
-    projectile = null;
-    particles = [];
-    currentColor = rand(activeColorCount());
-    nextColor = rand(activeColorCount());
-
-    createGrid();
-    closePanels();
-    saveProgress();
-    updateInfo();
-    playSound(700, 0.15);
-  }
-
-  function getPointerPosition(event) {
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: (event.clientX - rect.left) * (W / rect.width),
-      y: (event.clientY - rect.top) * (H / rect.height)
-    };
-  }
-
-  function onPointerDown(event) {
-    if (gameState !== "playing" || projectile) return;
-
-    const p = getPointerPosition(event);
-
-    // Start aiming only when touching the lower shooter area.
-    if (p.y < H - 145) return;
-
-    event.preventDefault();
-    aiming = true;
-    pointerId = event.pointerId;
-    aimPoint = p;
-
-    try {
-      canvas.setPointerCapture(pointerId);
-    } catch (e) {}
-  }
-
-  function onPointerMove(event) {
-    if (!aiming || event.pointerId !== pointerId) return;
-    event.preventDefault();
-    aimPoint = getPointerPosition(event);
-  }
-
-  function onPointerUp(event) {
-    if (!aiming || event.pointerId !== pointerId) return;
-
-    event.preventDefault();
-    aimPoint = getPointerPosition(event);
-    aiming = false;
-    pointerId = null;
-
-    fireBall();
-  }
-
-  function onPointerCancel(event) {
-    if (!aiming) return;
-    if (event && pointerId !== null && event.pointerId !== pointerId) return;
-
-    aiming = false;
-    pointerId = null;
-  }
-
-  function getShooterPosition() {
-    return { x: W / 2, y: H - 42 };
-  }
-
-  function fireBall() {
-    if (gameState !== "playing" || projectile) return;
-
-    const shooter = getShooterPosition();
-    let dx = aimPoint.x - shooter.x;
-    let dy = aimPoint.y - shooter.y;
-
-    if (dy > -20) dy = -20;
-
-    const length = Math.sqrt(dx * dx + dy * dy) || 1;
-    dx /= length;
-    dy /= length;
-
-    // Prevent shooting downwards.
-    if (dy > -0.18) dy = -0.18;
-
-    const normalLength = Math.sqrt(dx * dx + dy * dy);
-    dx /= normalLength;
-    dy /= normalLength;
-
-    projectile = {
-      x: shooter.x,
-      y: shooter.y,
-      vx: dx * 7,
-      vy: dy * 7,
-      color: COLORS[currentColor]
-    };
-
-    currentColor = nextColor;
-    nextColor = rand(activeColorCount());
-
-    updateInfo();
-    playSound(380, 0.08, "triangle");
+    // প্রথম সারি যেন কখনো ফাঁকা না থাকে।
+    for (let c = 0; c < COLS; c++) {
+      if (!grid[0][c]) grid[0][c] = randomColor(colors);
+    }
   }
 
   function getNeighbors(row, col) {
-    const list = [];
+    const result = [];
 
-    for (let r = 0; r < MAX_ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        if (r === row && c === col) continue;
+    if (col > 0) result.push([row, col - 1]);
+    if (col < COLS - 1) result.push([row, col + 1]);
 
-        const a = getCellPosition(row, col);
-        const b = getCellPosition(r, c);
-        const dx = a.x - b.x;
-        const dy = a.y - b.y;
-
-        if (Math.sqrt(dx * dx + dy * dy) < PITCH + 2) {
-          list.push([r, c]);
-        }
+    if (row > 0) {
+      if (row % 2 === 0) {
+        if (col > 0) result.push([row - 1, col - 1]);
+        result.push([row - 1, col]);
+      } else {
+        result.push([row - 1, col]);
+        if (col < COLS - 1) result.push([row - 1, col + 1]);
       }
     }
 
-    return list;
-  }
-
-  function findNearestEmpty(x, y) {
-    let best = null;
-    let bestDistance = Infinity;
-
-    for (let r = 0; r < MAX_ROWS; r++) {
-      for (let c = 0; c < COLS; c++) {
-        if (grid[r][c]) continue;
-
-        const p = getCellPosition(r, c);
-        const dx = p.x - x;
-        const dy = p.y - y;
-        const d = dx * dx + dy * dy;
-
-        if (d < bestDistance) {
-          bestDistance = d;
-          best = { row: r, col: c, distance: d };
-        }
+    if (row < MAX_ROWS - 1) {
+      if (row % 2 === 0) {
+        if (col > 0) result.push([row + 1, col - 1]);
+        result.push([row + 1, col]);
+      } else {
+        result.push([row + 1, col]);
+        if (col < COLS - 1) result.push([row + 1, col + 1]);
       }
     }
 
-    return best;
+    return result;
   }
 
   function findMatchingGroup(startRow, startCol, color) {
@@ -678,17 +209,17 @@
       if (visited.has(key)) continue;
       visited.add(key);
 
-      const cell = grid[r] && grid[r][c];
-      if (!cell || cell.color !== color) continue;
+      if (r < 0 || r >= MAX_ROWS || c < 0 || c >= COLS) continue;
+      if (grid[r][c] !== color) continue;
 
       group.push([r, c]);
 
-      getNeighbors(r, c).forEach(([nr, nc]) => {
-        const next = grid[nr] && grid[nr][nc];
-        if (next && next.color === color) {
+      for (const [nr, nc] of getNeighbors(r, c)) {
+        const neighborKey = nr + "," + nc;
+        if (!visited.has(neighborKey)) {
           queue.push([nr, nc]);
         }
-      });
+      }
     }
 
     return group;
@@ -711,9 +242,12 @@
 
       connected.add(key);
 
-      getNeighbors(r, c).forEach(([nr, nc]) => {
-        if (grid[nr][nc]) queue.push([nr, nc]);
-      });
+      for (const [nr, nc] of getNeighbors(r, c)) {
+        const nextKey = nr + "," + nc;
+        if (!connected.has(nextKey) && grid[nr][nc]) {
+          queue.push([nr, nc]);
+        }
+      }
     }
 
     let removed = 0;
@@ -721,417 +255,1002 @@
     for (let r = 0; r < MAX_ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         if (grid[r][c] && !connected.has(r + "," + c)) {
-          const p = getCellPosition(r, c);
-          createBurst(p.x, p.y, grid[r][c].color);
           grid[r][c] = null;
           removed++;
         }
       }
     }
 
-    if (removed) {
-      score += removed * 15;
-      playSound(760, 0.13, "sine");
-    }
-
     return removed;
   }
 
-  function createBurst(x, y, color) {
-    for (let i = 0; i < 7; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const speed = 1 + Math.random() * 3;
+  function findNearestEmpty(x, y, hitRow, hitCol) {
+    const candidates = [];
 
-      particles.push({
-        x,
-        y,
-        vx: Math.cos(angle) * speed,
-        vy: Math.sin(angle) * speed,
-        life: 25 + rand(15),
-        color
-      });
-    }
-  }
-
-  function attachProjectile() {
-    if (!projectile) return;
-
-    const nearest = findNearestEmpty(projectile.x, projectile.y);
-
-    if (!nearest) {
-      projectile = null;
-      endGame();
-      return;
-    }
-
-    const { row, col } = nearest;
-    grid[row][col] = { color: projectile.color };
-
-    const group = findMatchingGroup(row, col, projectile.color);
-
-    if (group.length >= 3) {
-      group.forEach(([r, c]) => {
-        const p = getCellPosition(r, c);
-        createBurst(p.x, p.y, grid[r][c].color);
-        grid[r][c] = null;
-      });
-
-      score += group.length * 10;
-      playSound(590, 0.14, "triangle");
-
-      removeFloatingBubbles();
-    }
-
-    projectile = null;
-
-    if (score > bestScore) bestScore = score;
-
-    updateInfo();
-    saveProgress();
-
-    if (isBoardEmpty()) {
-      completeLevel();
-      return;
-    }
-
-    if (hasReachedDangerLine()) {
-      endGame();
-    }
-  }
-
-  function isBoardEmpty() {
-    return grid.every(row => row.every(cell => !cell));
-  }
-
-  function hasReachedDangerLine() {
-    for (let r = 0; r < MAX_ROWS; r++) {
+    if (hitRow === null || hitCol === null) {
       for (let c = 0; c < COLS; c++) {
-        if (!grid[r][c]) continue;
-
-        const p = getCellPosition(r, c);
-        if (p.y + R >= DANGER_Y) return true;
+        if (!grid[0][c]) candidates.push([0, c]);
+      }
+    } else {
+      for (const [r, c] of getNeighbors(hitRow, hitCol)) {
+        if (!grid[r][c]) candidates.push([r, c]);
       }
     }
-    return false;
-  }
 
-  function completeLevel() {
-    gameState = "levelcomplete";
-    projectile = null;
+    let bestCell = null;
+    let bestDistance = Infinity;
 
-    if (score > bestScore) bestScore = score;
-    saveProgress();
-    updateInfo();
+    for (const [r, c] of candidates) {
+      const dx = rowX(r, c) - x;
+      const dy = rowY(r) - y;
+      const distance = dx * dx + dy * dy;
 
-    root.querySelector(".bs-completed-level").textContent = level;
-    root.querySelector(".bs-completed-score").textContent = score;
-
-    createConfetti();
-    showPanel(".bs-level-complete");
-
-    playSound(660, 0.18);
-    setTimeout(() => playSound(820, 0.18), 170);
-    setTimeout(() => playSound(980, 0.25), 340);
-  }
-
-  function endGame() {
-    if (gameState !== "playing") return;
-
-    gameState = "gameover";
-    projectile = null;
-
-    if (score > bestScore) bestScore = score;
-
-    root.querySelector(".bs-over-score").textContent = score;
-    saveProgress();
-    updateInfo();
-    showPanel(".bs-game-over");
-    playSound(170, 0.35, "sawtooth");
-  }
-
-  function createConfetti() {
-    const layer = root.querySelector(".bs-level-complete");
-
-    layer.querySelectorAll(".bs-confetti").forEach(el => el.remove());
-
-    const colors = ["#ff3e6c", "#ffe34d", "#31e7a1", "#43a5ff", "#bd69ff"];
-
-    for (let i = 0; i < 35; i++) {
-      const piece = document.createElement("span");
-      piece.className = "bs-confetti";
-      piece.style.left = Math.random() * 100 + "%";
-      piece.style.background = colors[rand(colors.length)];
-      piece.style.animationDelay = Math.random() * 2 + "s";
-      piece.style.animationDuration = 2 + Math.random() * 2 + "s";
-      layer.appendChild(piece);
-    }
-  }
-
-  function updateProjectile() {
-    if (!projectile) return;
-
-    projectile.x += projectile.vx;
-    projectile.y += projectile.vy;
-
-    if (projectile.x < R || projectile.x > W - R) {
-      projectile.vx *= -1;
-      projectile.x = clamp(projectile.x, R, W - R);
+      if (distance < bestDistance) {
+        bestDistance = distance;
+        bestCell = [r, c];
+      }
     }
 
-    // Hit the ceiling.
-    if (projectile.y <= 25 + R) {
-      attachProjectile();
-      return;
-    }
+    return bestCell;
+  }
 
-    // Check collision with existing bubbles.
+  function getBubbleAt(x, y) {
     for (let r = 0; r < MAX_ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         if (!grid[r][c]) continue;
 
-        const p = getCellPosition(r, c);
-        const dx = projectile.x - p.x;
-        const dy = projectile.y - p.y;
+        const dx = rowX(r, c) - x;
+        const dy = rowY(r) - y;
 
-        if (dx * dx + dy * dy <= (R * 2 - 1) * (R * 2 - 1)) {
-          attachProjectile();
-          return;
+        if (dx * dx + dy * dy <= (R * 2 + 2) ** 2) {
+          return [r, c];
         }
       }
     }
 
-    if (projectile.y > H + 20) {
-      attachProjectile();
+    return null;
+  }
+
+  function countBubbles() {
+    let total = 0;
+
+    for (let r = 0; r < MAX_ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (grid[r][c]) total++;
+      }
+    }
+
+    return total;
+  }
+
+  function isBoardEmpty() {
+    return countBubbles() === 0;
+  }
+
+  function updateScore(points) {
+    score += points;
+    if (score > best) best = score;
+    updateScoreText();
+    saveProgress();
+  }
+
+  function updateScoreText() {
+    const scoreEl = root && root.querySelector("#bs-score");
+    const bestEl = root && root.querySelector("#bs-best");
+    const levelEl = root && root.querySelector("#bs-level");
+
+    if (scoreEl) scoreEl.textContent = score;
+    if (bestEl) bestEl.textContent = best;
+    if (levelEl) levelEl.textContent = level;
+  }
+
+  function createParticles() {
+    particles = [];
+
+    for (let i = 0; i < 90; i++) {
+      particles.push({
+        x: Math.random() * W,
+        y: -Math.random() * H,
+        vx: (Math.random() - 0.5) * 3,
+        vy: 2 + Math.random() * 4,
+        size: 3 + Math.random() * 5,
+        rotation: Math.random() * 6,
+        spin: (Math.random() - 0.5) * 0.15,
+        color: randomColor(COLORS)
+      });
     }
   }
 
-  function drawBubble(x, y, color, radius = R) {
+  function updateParticles(dt) {
+    for (const p of particles) {
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+      p.rotation += p.spin * dt;
+
+      if (p.y > H + 15) {
+        p.y = -10;
+        p.x = Math.random() * W;
+      }
+    }
+  }
+
+  function drawParticles() {
+    for (const p of particles) {
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.rotate(p.rotation);
+      ctx.fillStyle = p.color;
+      ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 1.5);
+      ctx.restore();
+    }
+  }
+
+  function checkLevelComplete() {
+    if (!isBoardEmpty() || levelComplete || gameOver) return;
+
+    levelComplete = true;
+    projectile = null;
+    createParticles();
+
+    updateScore(100 + level * 20);
+    playSound(660, 0.15);
+    setTimeout(() => playSound(880, 0.25), 150);
+    setTimeout(() => playSound(1100, 0.3), 300);
+
+    showOverlay("complete");
+  }
+
+  function checkGameOver() {
+    for (let r = 0; r < MAX_ROWS; r++) {
+      for (let c = 0; c < COLS; c++) {
+        if (grid[r][c] && rowY(r) + R >= DANGER_Y) {
+          gameOver = true;
+          projectile = null;
+          showOverlay("gameover");
+          playSound(160, 0.35, "triangle");
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  function attachProjectile(hitRow, hitCol) {
+    if (!projectile) return;
+
+    const cell = findNearestEmpty(
+      projectile.x,
+      projectile.y,
+      hitRow,
+      hitCol
+    );
+
+    if (!cell) {
+      gameOver = true;
+      projectile = null;
+      showOverlay("gameover");
+      return;
+    }
+
+    const [r, c] = cell;
+    grid[r][c] = projectile.color;
+
+    const group = findMatchingGroup(r, c, projectile.color);
+
+    if (group.length >= 3) {
+      for (const [gr, gc] of group) {
+        grid[gr][gc] = null;
+      }
+
+      const floating = removeFloatingBubbles();
+      const popped = group.length + floating;
+
+      updateScore(group.length * 10 + floating * 15);
+      playSound(520 + Math.min(group.length, 8) * 55, 0.18);
+
+      if (floating > 0) {
+        playSound(300, 0.2, "triangle");
+      }
+
+      if (popped >= 5) {
+        createSmallBurst();
+      }
+    } else {
+      shotCount++;
+
+      // কয়েকটি শটের পর বোর্ডের চাপ বাড়ে, তবে চলতি লেভেলে নতুন সারি যোগ হয় না।
+      if (shotCount % 6 === 0) {
+        playSound(260, 0.12, "triangle");
+      }
+    }
+
+    projectile = null;
+    currentColor = nextColor;
+    nextColor = randomColor(activeColors());
+
+    updateBallPreview();
+    updateScoreText();
+
+    if (!checkGameOver()) checkLevelComplete();
+  }
+
+  function createSmallBurst() {
+    for (let i = 0; i < 18; i++) {
+      particles.push({
+        x: W / 2,
+        y: 180,
+        vx: (Math.random() - 0.5) * 7,
+        vy: (Math.random() - 0.5) * 7,
+        size: 3 + Math.random() * 4,
+        rotation: 0,
+        spin: 0.1,
+        color: randomColor(COLORS)
+      });
+    }
+  }
+
+  function shoot() {
+    if (projectile || levelComplete || gameOver || settingsOpen ||
+        restartConfirmOpen) return;
+
+    const dx = aimPoint.x - SHOOTER_X;
+    const dy = aimPoint.y - SHOOTER_Y;
+
+    let length = Math.sqrt(dx * dx + dy * dy);
+
+    if (length < 12) {
+      aimPoint = { x: SHOOTER_X, y: 150 };
+      length = 350;
+    }
+
+    let vx = dx / length;
+    let vy = dy / length;
+
+    // বলকে সবসময় ওপরের দিকে পাঠানো হবে।
+    if (vy > -0.12) {
+      vy = -0.12;
+      const horizontal = Math.sqrt(1 - vy * vy);
+      vx = (dx < 0 ? -1 : 1) * horizontal;
+    }
+
+    projectile = {
+      x: SHOOTER_X,
+      y: SHOOTER_Y - 8,
+      vx: vx * 430,
+      vy: vy * 430,
+      color: currentColor
+    };
+
+    aiming = false;
+    playSound(420, 0.08);
+  }
+
+  function updateProjectile(dt) {
+    if (!projectile) return;
+
+    const p = projectile;
+    const step = Math.min(dt, 0.035);
+    const subSteps = Math.max(1, Math.ceil(step / 0.008));
+    const subDt = step / subSteps;
+
+    for (let i = 0; i < subSteps; i++) {
+      p.x += p.vx * subDt;
+      p.y += p.vy * subDt;
+
+      if (p.x <= R) {
+        p.x = R;
+        p.vx = Math.abs(p.vx);
+        playSound(250, 0.035);
+      } else if (p.x >= W - R) {
+        p.x = W - R;
+        p.vx = -Math.abs(p.vx);
+        playSound(250, 0.035);
+      }
+
+      if (p.y <= R) {
+        p.y = R;
+        attachProjectile(null, null);
+        return;
+      }
+
+      const hit = getBubbleAt(p.x, p.y);
+
+      if (hit) {
+        attachProjectile(hit[0], hit[1]);
+        return;
+      }
+    }
+  }
+
+  function drawBubble(x, y, color, radius) {
+    const r = radius || R;
+
     const gradient = ctx.createRadialGradient(
-      x - radius * 0.35,
-      y - radius * 0.4,
+      x - r * 0.35,
+      y - r * 0.4,
       1,
       x,
       y,
-      radius * 1.2
+      r
     );
 
     gradient.addColorStop(0, "#ffffff");
-    gradient.addColorStop(0.13, color);
-    gradient.addColorStop(0.72, color);
-    gradient.addColorStop(1, "#111827");
+    gradient.addColorStop(0.18, color);
+    gradient.addColorStop(1, shadeColor(color, -35));
 
     ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fillStyle = gradient;
     ctx.fill();
 
     ctx.beginPath();
-    ctx.arc(
-      x - radius * 0.32,
-      y - radius * 0.35,
-      radius * 0.25,
-      0,
-      Math.PI * 2
-    );
-    ctx.fillStyle = "#ffffffbb";
+    ctx.arc(x - r * 0.35, y - r * 0.4, r * 0.25, 0, Math.PI * 2);
+    ctx.fillStyle = "rgba(255,255,255,0.55)";
     ctx.fill();
-
-    ctx.beginPath();
-    ctx.arc(x, y, radius, 0, Math.PI * 2);
-    ctx.strokeStyle = "#ffffff66";
-    ctx.lineWidth = 1;
-    ctx.stroke();
   }
 
-  function drawBackground() {
-    const bg = ctx.createLinearGradient(0, 0, 0, H);
-    bg.addColorStop(0, "#172f5c");
-    bg.addColorStop(1, "#0d1934");
+  function shadeColor(color, percent) {
+    const num = parseInt(color.replace("#", ""), 16);
+    let r = (num >> 16) + percent;
+    let g = ((num >> 8) & 0x00ff) + percent;
+    let b = (num & 0x0000ff) + percent;
 
-    ctx.fillStyle = bg;
-    ctx.fillRect(0, 0, W, H);
+    r = Math.max(0, Math.min(255, r));
+    g = Math.max(0, Math.min(255, g));
+    b = Math.max(0, Math.min(255, b));
 
-    // Decorative stars.
-    ctx.fillStyle = "#ffffff35";
-    for (let i = 0; i < 28; i++) {
-      const x = (i * 71 + 19) % W;
-      const y = (i * 97 + 35) % 390;
-      ctx.fillRect(x, y, 2, 2);
-    }
-
-    ctx.strokeStyle = "#ff737355";
-    ctx.lineWidth = 2;
-    ctx.setLineDash([5, 5]);
-    ctx.beginPath();
-    ctx.moveTo(0, DANGER_Y);
-    ctx.lineTo(W, DANGER_Y);
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    ctx.fillStyle = "#ff9c9c";
-    ctx.font = "10px Arial";
-    ctx.fillText("DANGER LINE", 8, DANGER_Y - 7);
+    return "#" + (0x1000000 + r * 0x10000 + g * 0x100 + b)
+      .toString(16)
+      .slice(1);
   }
 
   function drawAimLine() {
-    if (!aiming || gameState !== "playing") return;
+    if (!aiming || projectile || levelComplete || gameOver) return;
 
-    const shooter = getShooterPosition();
-    let dx = aimPoint.x - shooter.x;
-    let dy = aimPoint.y - shooter.y;
+    let dx = aimPoint.x - SHOOTER_X;
+    let dy = aimPoint.y - SHOOTER_Y;
+    let length = Math.sqrt(dx * dx + dy * dy);
 
-    if (dy > -20) dy = -20;
+    if (length < 10) return;
 
-    const len = Math.sqrt(dx * dx + dy * dy) || 1;
-    dx /= len;
-    dy /= len;
+    let vx = dx / length;
+    let vy = dy / length;
 
-    if (dy > -0.18) dy = -0.18;
-
-    const norm = Math.sqrt(dx * dx + dy * dy);
-    dx /= norm;
-    dy /= norm;
-
-    let x = shooter.x;
-    let y = shooter.y;
-    let vx = dx;
-    let vy = dy;
-
-    ctx.fillStyle = "#ffffff";
-    for (let i = 0; i < 35; i++) {
-      x += vx * 8;
-      y += vy * 8;
-
-      if (x < R || x > W - R) vx *= -1;
-
-      ctx.beginPath();
-      ctx.arc(x, y, 2, 0, Math.PI * 2);
-      ctx.globalAlpha = 1 - i / 45;
-      ctx.fill();
-      ctx.globalAlpha = 1;
-
-      if (y < 25 || y > DANGER_Y) break;
+    if (vy > -0.12) {
+      vy = -0.12;
+      const h = Math.sqrt(1 - vy * vy);
+      vx = (dx < 0 ? -1 : 1) * h;
     }
 
-    ctx.beginPath();
-    ctx.arc(aimPoint.x, aimPoint.y, 5, 0, Math.PI * 2);
-    ctx.strokeStyle = "#ffe36a";
+    let x = SHOOTER_X;
+    let y = SHOOTER_Y - 8;
+    let hitPoint = null;
+    let bounces = 0;
+
+    ctx.save();
+    ctx.setLineDash([4, 6]);
     ctx.lineWidth = 2;
-    ctx.stroke();
-  }
-
-  function drawShooter() {
-    const shooter = getShooterPosition();
-
+    ctx.strokeStyle = "rgba(255,255,255,0.85)";
     ctx.beginPath();
-    ctx.arc(shooter.x, shooter.y + 3, 25, Math.PI, 0);
-    ctx.fillStyle = "#5479ad";
-    ctx.fill();
+    ctx.moveTo(x, y);
 
-    drawBubble(shooter.x, shooter.y, COLORS[currentColor], R + 1);
-  }
+    // সর্বোচ্চ দুইবার দেয়ালে বাউন্স দেখানো হবে।
+    for (let i = 0; i < 900; i++) {
+      x += vx * 3;
+      y += vy * 3;
 
-  function drawParticles() {
-    particles = particles.filter(p => p.life > 0);
+      if (x <= R || x >= W - R) {
+        x = Math.max(R, Math.min(W - R, x));
+        vx *= -1;
+        bounces++;
 
-    particles.forEach(p => {
-      p.x += p.vx;
-      p.y += p.vy;
-      p.vy += 0.08;
-      p.life--;
+        if (bounces > 2) break;
+      }
 
-      ctx.globalAlpha = Math.max(0, p.life / 40);
-      ctx.fillStyle = p.color;
+      if (y <= R) {
+        hitPoint = { x, y };
+        break;
+      }
+
+      const hit = getBubbleAt(x, y);
+
+      if (hit) {
+        hitPoint = { x, y };
+        break;
+      }
+
+      ctx.lineTo(x, y);
+    }
+
+    if (hitPoint) {
+      ctx.lineTo(hitPoint.x, hitPoint.y);
+    }
+
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    if (hitPoint) {
       ctx.beginPath();
-      ctx.arc(p.x, p.y, 2.5, 0, Math.PI * 2);
+      ctx.arc(hitPoint.x, hitPoint.y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = "#ffffff";
       ctx.fill();
-      ctx.globalAlpha = 1;
-    });
+    }
+
+    ctx.restore();
   }
 
-  function draw() {
-    if (!ctx) return;
+  function drawBoard() {
+    ctx.clearRect(0, 0, W, H);
 
-    drawBackground();
+    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    bg.addColorStop(0, "#15234c");
+    bg.addColorStop(1, "#08132e");
+    ctx.fillStyle = bg;
+    ctx.fillRect(0, 0, W, H);
+
+    // উপরের বোর্ডের সীমানা।
+    ctx.strokeStyle = "rgba(255,255,255,0.12)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(5, 5, W - 10, DANGER_Y - 5);
 
     for (let r = 0; r < MAX_ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
-        const cell = grid[r] && grid[r][c];
-        if (!cell) continue;
-
-        const p = getCellPosition(r, c);
-        drawBubble(p.x, p.y, cell.color);
+        if (grid[r][c]) {
+          drawBubble(rowX(r, c), rowY(r), grid[r][c]);
+        }
       }
     }
 
+    // বিপদসীমা।
+    ctx.save();
+    ctx.setLineDash([7, 6]);
+    ctx.strokeStyle = "rgba(255,90,90,0.75)";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(5, DANGER_Y);
+    ctx.lineTo(W - 5, DANGER_Y);
+    ctx.stroke();
+    ctx.restore();
+
     drawAimLine();
-    drawShooter();
+
+    // Shooter base.
+    ctx.beginPath();
+    ctx.arc(SHOOTER_X, SHOOTER_Y, 24, Math.PI, 0);
+    ctx.fillStyle = "#40558a";
+    ctx.fill();
+
+    ctx.beginPath();
+    ctx.arc(SHOOTER_X, SHOOTER_Y, 15, 0, Math.PI * 2);
+    ctx.fillStyle = "#dbeafe";
+    ctx.fill();
+
+    drawBubble(SHOOTER_X, SHOOTER_Y - 8, currentColor, 13);
 
     if (projectile) {
-      drawBubble(projectile.x, projectile.y, projectile.color, R);
+      drawBubble(projectile.x, projectile.y, projectile.color);
     }
 
     drawParticles();
   }
 
-  function loop(timestamp) {
-    if (!root || !canvas) return;
+  function updateBallPreview() {
+    const current = root && root.querySelector("#bs-current");
+    const next = root && root.querySelector("#bs-next");
 
-    if (gameState === "playing") {
-      if (projectile) updateProjectile();
+    if (current) current.style.background = currentColor;
+    if (next) next.style.background = nextColor;
+  }
+
+  function showOverlay(type) {
+    if (!root) return;
+
+    const overlay = root.querySelector("#bs-overlay");
+    if (!overlay) return;
+
+    overlay.style.display = "flex";
+
+    if (type === "complete") {
+      overlay.innerHTML = `
+        <div class="bs-modal bs-celebrate">
+          <div class="bs-big-emoji">🎉</div>
+          <h2>লেভেল সম্পন্ন!</h2>
+          <p>অসাধারণ খেলেছেন!</p>
+          <div class="bs-modal-score">স্কোর: ${score}</div>
+          <button id="bs-next-level" class="bs-primary">পরের লেভেল ▶</button>
+        </div>
+      `;
+
+      overlay.querySelector("#bs-next-level").onclick = nextLevel;
+    } else if (type === "gameover") {
+      overlay.innerHTML = `
+        <div class="bs-modal">
+          <div class="bs-big-emoji">😢</div>
+          <h2>গেম ওভার!</h2>
+          <p>বল বিপদসীমায় পৌঁছে গেছে।</p>
+          <div class="bs-modal-score">স্কোর: ${score}</div>
+          <button id="bs-try-again" class="bs-primary">আবার খেলুন</button>
+        </div>
+      `;
+
+      overlay.querySelector("#bs-try-again").onclick = restartLevel;
+    }
+  }
+
+  function hideOverlay() {
+    const overlay = root && root.querySelector("#bs-overlay");
+    if (overlay) overlay.style.display = "none";
+  }
+
+  function nextLevel() {
+    level++;
+    levelComplete = false;
+    gameOver = false;
+    projectile = null;
+    shotCount = 0;
+    particles = [];
+
+    createGrid();
+    currentColor = randomColor(activeColors());
+    nextColor = randomColor(activeColors());
+
+    updateScoreText();
+    updateBallPreview();
+    hideOverlay();
+    saveProgress();
+  }
+
+  function restartLevel() {
+    levelComplete = false;
+    gameOver = false;
+    projectile = null;
+    particles = [];
+    shotCount = 0;
+
+    createGrid();
+    currentColor = randomColor(activeColors());
+    nextColor = randomColor(activeColors());
+
+    updateScoreText();
+    updateBallPreview();
+    hideOverlay();
+    saveProgress();
+  }
+
+  function restartWholeGame() {
+    level = 1;
+    score = 0;
+    shotCount = 0;
+    levelComplete = false;
+    gameOver = false;
+    projectile = null;
+    particles = [];
+
+    createGrid();
+    currentColor = randomColor(activeColors());
+    nextColor = randomColor(activeColors());
+
+    settingsOpen = false;
+    restartConfirmOpen = false;
+
+    updateScoreText();
+    updateBallPreview();
+    hideOverlay();
+    closeSettings();
+    closeRestartConfirm();
+    saveProgress();
+  }
+
+  function openSettings() {
+    settingsOpen = true;
+    const panel = root.querySelector("#bs-settings");
+    if (panel) panel.style.display = "flex";
+  }
+
+  function closeSettings() {
+    settingsOpen = false;
+    const panel = root && root.querySelector("#bs-settings");
+    if (panel) panel.style.display = "none";
+  }
+
+  function openRestartConfirm() {
+    restartConfirmOpen = true;
+    const panel = root.querySelector("#bs-confirm");
+    if (panel) panel.style.display = "flex";
+  }
+
+  function closeRestartConfirm() {
+    restartConfirmOpen = false;
+    const panel = root && root.querySelector("#bs-confirm");
+    if (panel) panel.style.display = "none";
+  }
+
+  function changeBall() {
+    if (projectile || levelComplete || gameOver) return;
+
+    const old = currentColor;
+    currentColor = nextColor;
+    nextColor = old;
+
+    updateBallPreview();
+    playSound(600, 0.07);
+  }
+
+  function getCanvasPoint(event) {
+    const rect = canvas.getBoundingClientRect();
+
+    return {
+      x: (event.clientX - rect.left) * (W / rect.width),
+      y: (event.clientY - rect.top) * (H / rect.height)
+    };
+  }
+
+  function onPointerDown(event) {
+    if (settingsOpen || restartConfirmOpen || levelComplete || gameOver ||
+        projectile) return;
+
+    event.preventDefault();
+
+    const point = getCanvasPoint(event);
+    pointerStart = point;
+    aimPoint = point;
+    aiming = true;
+
+    try {
+      canvas.setPointerCapture(event.pointerId);
+    } catch (e) {}
+  }
+
+  function onPointerMove(event) {
+    if (!aiming || !pointerStart) return;
+
+    event.preventDefault();
+    aimPoint = getCanvasPoint(event);
+  }
+
+  function onPointerUp(event) {
+    if (!aiming) return;
+
+    event.preventDefault();
+
+    if (event.type !== "pointercancel") {
+      aimPoint = getCanvasPoint(event);
+      shoot();
+    } else {
+      aiming = false;
     }
 
-    draw();
+    pointerStart = null;
+  }
+
+  function createInterface(box) {
+    box.innerHTML = `
+      <div id="bs-game" class="bs-game">
+        <style>
+          .bs-game {
+            width: 100%;
+            max-width: 430px;
+            margin: 0 auto;
+            color: #fff;
+            font-family: Arial, sans-serif;
+            background: #101b3c;
+            border-radius: 16px;
+            padding: 10px;
+            box-sizing: border-box;
+            position: relative;
+            overflow: hidden;
+            user-select: none;
+          }
+          .bs-game * { box-sizing: border-box; }
+          .bs-topbar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 6px;
+            margin-bottom: 8px;
+          }
+          .bs-stat {
+            background: #223563;
+            padding: 7px 9px;
+            border-radius: 9px;
+            text-align: center;
+            flex: 1;
+            font-size: 12px;
+          }
+          .bs-stat strong {
+            display: block;
+            font-size: 16px;
+            margin-top: 3px;
+            color: #ffe47a;
+          }
+          .bs-icon-btn {
+            border: 0;
+            color: #fff;
+            background: #344b80;
+            border-radius: 9px;
+            padding: 9px 11px;
+            font-size: 19px;
+            cursor: pointer;
+          }
+          .bs-canvas-wrap {
+            width: 100%;
+            position: relative;
+            border-radius: 12px;
+            overflow: hidden;
+            background: #08132e;
+          }
+          #bs-canvas {
+            width: 100%;
+            height: auto;
+            display: block;
+            touch-action: none;
+            cursor: crosshair;
+          }
+          .bs-bottom {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 8px;
+            margin-top: 10px;
+          }
+          .bs-ball-info {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+          }
+          .bs-preview-ball {
+            display: inline-block;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            border: 2px solid rgba(255,255,255,.7);
+            box-shadow: inset -4px -5px 6px rgba(0,0,0,.3);
+          }
+          .bs-change {
+            border: 0;
+            border-radius: 9px;
+            padding: 10px 12px;
+            background: #ffd43b;
+            color: #18264b;
+            font-weight: bold;
+            cursor: pointer;
+          }
+          .bs-overlay {
+            position: absolute;
+            inset: 0;
+            z-index: 5;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 14px;
+            background: rgba(4,10,30,.82);
+          }
+          .bs-modal {
+            width: 100%;
+            max-width: 300px;
+            padding: 22px 16px;
+            text-align: center;
+            background: #233967;
+            border: 1px solid rgba(255,255,255,.2);
+            border-radius: 16px;
+            box-shadow: 0 10px 35px rgba(0,0,0,.35);
+          }
+          .bs-modal h2 {
+            margin: 8px 0;
+            font-size: 23px;
+          }
+          .bs-modal p {
+            margin: 8px 0 15px;
+            color: #dce7ff;
+            font-size: 14px;
+          }
+          .bs-big-emoji { font-size: 42px; }
+          .bs-modal-score {
+            margin: 12px 0;
+            color: #ffe47a;
+            font-weight: bold;
+          }
+          .bs-primary {
+            width: 100%;
+            border: 0;
+            border-radius: 10px;
+            padding: 12px;
+            background: #ffd43b;
+            color: #17264b;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+          }
+          .bs-settings-panel, .bs-confirm-panel {
+            position: absolute;
+            inset: 0;
+            z-index: 8;
+            display: none;
+            align-items: center;
+            justify-content: center;
+            padding: 15px;
+            background: rgba(4,10,30,.86);
+          }
+          .bs-menu-btn {
+            width: 100%;
+            margin-top: 10px;
+            padding: 12px;
+            border: 0;
+            border-radius: 9px;
+            background: #405b91;
+            color: #fff;
+            font-size: 15px;
+            font-weight: bold;
+            cursor: pointer;
+          }
+          .bs-menu-btn.danger { background: #b83b4b; }
+          .bs-menu-btn.light {
+            background: #dbeafe;
+            color: #17264b;
+          }
+          .bs-hint {
+            text-align: center;
+            font-size: 11px;
+            color: #c8d5f5;
+            margin-top: 8px;
+          }
+        </style>
+
+        <div class="bs-topbar">
+          <div class="bs-stat">লেভেল<strong id="bs-level">1</strong></div>
+          <div class="bs-stat">স্কোর<strong id="bs-score">0</strong></div>
+          <div class="bs-stat">সেরা<strong id="bs-best">0</strong></div>
+          <button id="bs-settings-btn" class="bs-icon-btn" aria-label="Settings">⚙️</button>
+        </div>
+
+        <div class="bs-canvas-wrap">
+          <canvas id="bs-canvas" width="${W}" height="${H}"></canvas>
+
+          <div id="bs-overlay" class="bs-overlay"></div>
+
+          <div id="bs-settings" class="bs-settings-panel">
+            <div class="bs-modal">
+              <h2>⚙️ সেটিংস</h2>
+              <button id="bs-sound-btn" class="bs-menu-btn"></button>
+              <button id="bs-restart-btn" class="bs-menu-btn danger">🔄 নতুন করে শুরু</button>
+              <button id="bs-settings-close" class="bs-menu-btn light">ফিরে যান</button>
+            </div>
+          </div>
+
+          <div id="bs-confirm" class="bs-confirm-panel">
+            <div class="bs-modal">
+              <h2>নতুন করে শুরু করবেন?</h2>
+              <p>আপনার বর্তমান লেভেল ও স্কোর মুছে যাবে।</p>
+              <button id="bs-confirm-yes" class="bs-menu-btn danger">হ্যাঁ, শুরু করুন</button>
+              <button id="bs-confirm-no" class="bs-menu-btn light">না, ফিরে যান</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="bs-bottom">
+          <div class="bs-ball-info">
+            <span>এখন:</span>
+            <span id="bs-current" class="bs-preview-ball"></span>
+            <span>পরের:</span>
+            <span id="bs-next" class="bs-preview-ball"></span>
+          </div>
+          <button id="bs-change" class="bs-change">বল পরিবর্তন</button>
+        </div>
+
+        <div class="bs-hint">লক্ষ্য ঠিক করতে টাচ করুন বা ধরে টেনে ছেড়ে দিন</div>
+      </div>
+    `;
+
+    root = box.querySelector("#bs-game");
+    canvas = root.querySelector("#bs-canvas");
+    ctx = canvas.getContext("2d");
+
+    root.querySelector("#bs-settings-btn").onclick = openSettings;
+    root.querySelector("#bs-settings-close").onclick = closeSettings;
+    root.querySelector("#bs-restart-btn").onclick = openRestartConfirm;
+    root.querySelector("#bs-confirm-yes").onclick = restartWholeGame;
+    root.querySelector("#bs-confirm-no").onclick = closeRestartConfirm;
+    root.querySelector("#bs-change").onclick = changeBall;
+
+    root.querySelector("#bs-sound-btn").onclick = function () {
+      soundOn = !soundOn;
+      updateSoundButton();
+      saveProgress();
+      if (soundOn) playSound(650, 0.1);
+    };
+
+    canvas.addEventListener("pointerdown", onPointerDown);
+    canvas.addEventListener("pointermove", onPointerMove);
+    canvas.addEventListener("pointerup", onPointerUp);
+    canvas.addEventListener("pointercancel", onPointerUp);
+
+    updateSoundButton();
+    updateScoreText();
+    updateBallPreview();
+  }
+
+  function updateSoundButton() {
+    const button = root && root.querySelector("#bs-sound-btn");
+    if (button) {
+      button.textContent = soundOn ? "🔊 সাউন্ড বন্ধ করুন" : "🔇 সাউন্ড চালু করুন";
+    }
+  }
+
+  function loop(timestamp) {
+    if (!running || destroyed) return;
+
+    const dt = lastTime ? Math.min((timestamp - lastTime) / 1000, 0.035) : 0.016;
+    lastTime = timestamp;
+
+    if (!settingsOpen && !restartConfirmOpen && !levelComplete && !gameOver) {
+      updateProjectile(dt);
+    }
+
+    if (levelComplete) updateParticles(dt);
+
+    drawBoard();
     animationId = requestAnimationFrame(loop);
   }
 
   function cleanup() {
+    running = false;
+    destroyed = true;
+
     if (animationId) cancelAnimationFrame(animationId);
-    animationId = null;
 
     if (canvas) {
       canvas.removeEventListener("pointerdown", onPointerDown);
       canvas.removeEventListener("pointermove", onPointerMove);
       canvas.removeEventListener("pointerup", onPointerUp);
-      canvas.removeEventListener("pointercancel", onPointerCancel);
-      canvas.removeEventListener("lostpointercapture", onPointerCancel);
+      canvas.removeEventListener("pointercancel", onPointerUp);
     }
 
     aiming = false;
-    pointerId = null;
     projectile = null;
+    particles = [];
     root = null;
     canvas = null;
     ctx = null;
-    grid = [];
-    particles = [];
-    gameState = "playing";
   }
 
   function start(box) {
-    cleanup();
+    if (typeof box === "string") {
+      box = document.querySelector(box);
+    }
 
-    loadProgress();
-    currentColor = rand(activeColorCount());
-    nextColor = rand(activeColorCount());
+    if (!box) {
+      console.error("Bubble Shooter: game container not found.");
+      return;
+    }
 
-    gameState = "playing";
-    aiming = false;
+    if (running) cleanup();
+
+    destroyed = false;
+    running = true;
+    lastTime = 0;
     projectile = null;
+    aiming = false;
+    settingsOpen = false;
+    restartConfirmOpen = false;
+    levelComplete = false;
+    gameOver = false;
     particles = [];
 
+    loadSave();
     createInterface(box);
     createGrid();
-    updateInfo();
 
-    const soundButton = root.querySelector(".bs-sound-toggle");
-    soundButton.textContent = soundOn ? "🔊 Sound On" : "🔇 Sound Off";
+    currentColor = randomColor(activeColors());
+    nextColor = randomColor(activeColors());
 
-    if (animationId) cancelAnimationFrame(animationId);
+    updateScoreText();
+    updateBallPreview();
+
     animationId = requestAnimationFrame(loop);
   }
 
-  // Keep these names so the existing game launcher can start this game.
   window.startBubbleShooter = start;
   window.stopBubbleShooter = cleanup;
 
