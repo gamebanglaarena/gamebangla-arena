@@ -1,6 +1,6 @@
 /* =====================================================
    GAMEBANGLA ARENA - BUBBLE SHOOTER POP
-   Complete replacement version
+   Improved Complete Version
    ===================================================== */
 
 (function () {
@@ -11,9 +11,8 @@
   const COLS = 10;
   const MAX_ROWS = 18;
   const R = 14;
-  const GAP = 2;
-  const PITCH = R * 2 + GAP;
-  const SHOOTER_X = W / 2;
+  const PITCH = 30;
+  const SHOOTER_X = 180;
   const SHOOTER_Y = 500;
   const DANGER_Y = 435;
   const SAVE_KEY = "gbaBubbleShooterProgressV3";
@@ -37,14 +36,17 @@
 
   let grid = [];
   let projectile = null;
+
   let aiming = false;
   let pointerStart = null;
-  let aimPoint = { x: W / 2, y: 200 };
+  let aimPoint = { x: 180, y: 180 };
+  let pointerMoved = false;
 
   let level = 1;
   let score = 0;
   let best = 0;
   let soundOn = true;
+
   let currentColor = COLORS[0];
   let nextColor = COLORS[1];
 
@@ -52,16 +54,22 @@
   let restartConfirmOpen = false;
   let levelComplete = false;
   let gameOver = false;
+
   let shotCount = 0;
-
   let particles = [];
-  let lastShotTime = 0;
-
   let audioContext = null;
+  let lastWallSound = 0;
+
+  /* =========================
+     SAVE SYSTEM
+  ========================= */
 
   function loadSave() {
     try {
-      const data = JSON.parse(localStorage.getItem(SAVE_KEY) || "{}");
+      const data = JSON.parse(
+        localStorage.getItem(SAVE_KEY) || "{}"
+      );
+
       level = Math.max(1, Number(data.level) || 1);
       score = Math.max(0, Number(data.score) || 0);
       best = Math.max(0, Number(data.best) || 0);
@@ -76,58 +84,135 @@
 
   function saveProgress() {
     try {
-      localStorage.setItem(SAVE_KEY, JSON.stringify({
-        level,
-        score,
-        best,
-        soundOn
-      }));
+      localStorage.setItem(
+        SAVE_KEY,
+        JSON.stringify({
+          level,
+          score,
+          best,
+          soundOn
+        })
+      );
     } catch (e) {}
   }
 
-  function playSound(frequency, duration, type) {
+  /* =========================
+     SOUND SYSTEM
+  ========================= */
+
+  function unlockAudio() {
     if (!soundOn) return;
 
     try {
-      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      const AudioCtx =
+        window.AudioContext ||
+        window.webkitAudioContext;
+
       if (!AudioCtx) return;
 
-      if (!audioContext) audioContext = new AudioCtx();
+      if (!audioContext) {
+        audioContext = new AudioCtx();
+      }
 
       if (audioContext.state === "suspended") {
         audioContext.resume();
       }
-
-      const oscillator = audioContext.createOscillator();
-      const gain = audioContext.createGain();
-
-      oscillator.type = type || "sine";
-      oscillator.frequency.value = frequency;
-      gain.gain.setValueAtTime(0.08, audioContext.currentTime);
-      gain.gain.exponentialRampToValueAtTime(
-        0.001,
-        audioContext.currentTime + duration
-      );
-
-      oscillator.connect(gain);
-      gain.connect(audioContext.destination);
-
-      oscillator.start();
-      oscillator.stop(audioContext.currentTime + duration);
     } catch (e) {}
   }
 
+  function playTone(freq, duration, type, volume) {
+    if (!soundOn) return;
+
+    try {
+      unlockAudio();
+      if (!audioContext) return;
+
+      const osc = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+
+      const now = audioContext.currentTime;
+
+      osc.type = type || "sine";
+      osc.frequency.setValueAtTime(freq, now);
+
+      gain.gain.setValueAtTime(
+        volume || 0.07,
+        now
+      );
+
+      gain.gain.exponentialRampToValueAtTime(
+        0.001,
+        now + duration
+      );
+
+      osc.connect(gain);
+      gain.connect(audioContext.destination);
+
+      osc.start(now);
+      osc.stop(now + duration);
+    } catch (e) {}
+  }
+
+  function playShootSound() {
+    playTone(420, 0.09, "triangle", 0.06);
+  }
+
+  function playWallSound() {
+    const now = performance.now();
+
+    if (now - lastWallSound < 140) return;
+
+    lastWallSound = now;
+    playTone(260, 0.045, "sine", 0.035);
+  }
+
+  function playPopSound(count) {
+    playTone(
+      480 + Math.min(count, 10) * 55,
+      0.16,
+      "sine",
+      0.08
+    );
+  }
+
+  function playDropSound() {
+    playTone(240, 0.22, "triangle", 0.07);
+  }
+
+  function playLevelSound() {
+    playTone(660, 0.18, "sine", 0.08);
+
+    setTimeout(() => {
+      if (soundOn) playTone(880, 0.2, "sine", 0.08);
+    }, 180);
+
+    setTimeout(() => {
+      if (soundOn) playTone(1100, 0.32, "sine", 0.08);
+    }, 360);
+  }
+
+  /* =========================
+     COLORS AND GRID
+  ========================= */
+
   function randomColor(list) {
-    return list[Math.floor(Math.random() * list.length)];
+    return list[
+      Math.floor(Math.random() * list.length)
+    ];
   }
 
   function activeColors() {
-    const count = Math.min(6, 3 + Math.floor((level - 1) / 2));
+    const count = Math.min(
+      6,
+      3 + Math.floor((level - 1) / 2)
+    );
+
     return COLORS.slice(0, count);
   }
 
   function rowX(row, col) {
-    return R + col * PITCH + (row % 2 ? PITCH / 2 : 0);
+    return R + col * PITCH +
+      (row % 2 ? PITCH / 2 : 0);
   }
 
   function rowY(row) {
@@ -136,13 +221,17 @@
 
   function makeEmptyGrid() {
     grid = [];
+
     for (let r = 0; r < MAX_ROWS; r++) {
       grid.push(new Array(COLS).fill(null));
     }
   }
 
   function startingRows() {
-    return Math.min(14, 5 + Math.floor((level - 1) * 0.65));
+    return Math.min(
+      14,
+      5 + Math.floor((level - 1) * 0.65)
+    );
   }
 
   function createGrid() {
@@ -153,8 +242,7 @@
 
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < COLS; c++) {
-        // ওপরের সারিগুলোতে কিছু ফাঁকা জায়গা থাকবে।
-        const emptyChance = r < 2 ? 0.08 : 0.13;
+        const emptyChance = r < 2 ? 0.06 : 0.12;
 
         if (Math.random() > emptyChance) {
           grid[r][c] = randomColor(colors);
@@ -162,35 +250,57 @@
       }
     }
 
-    // প্রথম সারি যেন কখনো ফাঁকা না থাকে।
     for (let c = 0; c < COLS; c++) {
-      if (!grid[0][c]) grid[0][c] = randomColor(colors);
+      if (!grid[0][c]) {
+        grid[0][c] = randomColor(colors);
+      }
     }
   }
+
+  /* =========================
+     HEXAGON NEIGHBORS
+  ========================= */
 
   function getNeighbors(row, col) {
     const result = [];
 
-    if (col > 0) result.push([row, col - 1]);
-    if (col < COLS - 1) result.push([row, col + 1]);
+    if (col > 0) {
+      result.push([row, col - 1]);
+    }
+
+    if (col < COLS - 1) {
+      result.push([row, col + 1]);
+    }
 
     if (row > 0) {
       if (row % 2 === 0) {
-        if (col > 0) result.push([row - 1, col - 1]);
+        if (col > 0) {
+          result.push([row - 1, col - 1]);
+        }
+
         result.push([row - 1, col]);
       } else {
         result.push([row - 1, col]);
-        if (col < COLS - 1) result.push([row - 1, col + 1]);
+
+        if (col < COLS - 1) {
+          result.push([row - 1, col + 1]);
+        }
       }
     }
 
     if (row < MAX_ROWS - 1) {
       if (row % 2 === 0) {
-        if (col > 0) result.push([row + 1, col - 1]);
+        if (col > 0) {
+          result.push([row + 1, col - 1]);
+        }
+
         result.push([row + 1, col]);
       } else {
         result.push([row + 1, col]);
-        if (col < COLS - 1) result.push([row + 1, col + 1]);
+
+        if (col < COLS - 1) {
+          result.push([row + 1, col + 1]);
+        }
       }
     }
 
@@ -202,21 +312,30 @@
     const visited = new Set();
     const group = [];
 
-    while (queue.length) {
-      const [r, c] = queue.shift();
+    let index = 0;
+
+    while (index < queue.length) {
+      const [r, c] = queue[index++];
       const key = r + "," + c;
 
       if (visited.has(key)) continue;
       visited.add(key);
 
-      if (r < 0 || r >= MAX_ROWS || c < 0 || c >= COLS) continue;
+      if (
+        r < 0 || r >= MAX_ROWS ||
+        c < 0 || c >= COLS
+      ) continue;
+
       if (grid[r][c] !== color) continue;
 
       group.push([r, c]);
 
-      for (const [nr, nc] of getNeighbors(r, c)) {
-        const neighborKey = nr + "," + nc;
-        if (!visited.has(neighborKey)) {
+      const neighbors = getNeighbors(r, c);
+
+      for (const [nr, nc] of neighbors) {
+        const nextKey = nr + "," + nc;
+
+        if (!visited.has(nextKey)) {
           queue.push([nr, nc]);
         }
       }
@@ -230,11 +349,15 @@
     const queue = [];
 
     for (let c = 0; c < COLS; c++) {
-      if (grid[0][c]) queue.push([0, c]);
+      if (grid[0][c]) {
+        queue.push([0, c]);
+      }
     }
 
-    while (queue.length) {
-      const [r, c] = queue.shift();
+    let index = 0;
+
+    while (index < queue.length) {
+      const [r, c] = queue[index++];
       const key = r + "," + c;
 
       if (connected.has(key)) continue;
@@ -244,7 +367,11 @@
 
       for (const [nr, nc] of getNeighbors(r, c)) {
         const nextKey = nr + "," + nc;
-        if (!connected.has(nextKey) && grid[nr][nc]) {
+
+        if (
+          !connected.has(nextKey) &&
+          grid[nr][nc]
+        ) {
           queue.push([nr, nc]);
         }
       }
@@ -254,7 +381,10 @@
 
     for (let r = 0; r < MAX_ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
-        if (grid[r][c] && !connected.has(r + "," + c)) {
+        if (
+          grid[r][c] &&
+          !connected.has(r + "," + c)
+        ) {
           grid[r][c] = null;
           removed++;
         }
@@ -269,11 +399,15 @@
 
     if (hitRow === null || hitCol === null) {
       for (let c = 0; c < COLS; c++) {
-        if (!grid[0][c]) candidates.push([0, c]);
+        if (!grid[0][c]) {
+          candidates.push([0, c]);
+        }
       }
     } else {
       for (const [r, c] of getNeighbors(hitRow, hitCol)) {
-        if (!grid[r][c]) candidates.push([r, c]);
+        if (!grid[r][c]) {
+          candidates.push([r, c]);
+        }
       }
     }
 
@@ -295,6 +429,8 @@
   }
 
   function getBubbleAt(x, y) {
+    const limit = (R * 2 + 1) ** 2;
+
     for (let r = 0; r < MAX_ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         if (!grid[r][c]) continue;
@@ -302,7 +438,7 @@
         const dx = rowX(r, c) - x;
         const dy = rowY(r) - y;
 
-        if (dx * dx + dy * dy <= (R * 2 + 2) ** 2) {
+        if (dx * dx + dy * dy <= limit) {
           return [r, c];
         }
       }
@@ -323,13 +459,17 @@
     return total;
   }
 
-  function isBoardEmpty() {
-    return countBubbles() === 0;
-  }
+  /* =========================
+     SCORE AND DISPLAY
+  ========================= */
 
   function updateScore(points) {
     score += points;
-    if (score > best) best = score;
+
+    if (score > best) {
+      best = score;
+    }
+
     updateScoreText();
     saveProgress();
   }
@@ -344,32 +484,65 @@
     if (levelEl) levelEl.textContent = level;
   }
 
+  function updateBallPreview() {
+    const current = root &&
+      root.querySelector("#bs-current");
+
+    const next = root &&
+      root.querySelector("#bs-next");
+
+    if (current) {
+      current.style.background = currentColor;
+    }
+
+    if (next) {
+      next.style.background = nextColor;
+    }
+  }
+
+  /* =========================
+     CONFETTI CELEBRATION
+  ========================= */
+
   function createParticles() {
     particles = [];
 
-    for (let i = 0; i < 90; i++) {
+    const confettiColors = [
+      "#ffd700",
+      "#fff176",
+      "#ff4f81",
+      "#4de3ff",
+      "#b56cff",
+      "#5cff91",
+      "#ffffff"
+    ];
+
+    for (let i = 0; i < 150; i++) {
       particles.push({
         x: Math.random() * W,
         y: -Math.random() * H,
-        vx: (Math.random() - 0.5) * 3,
-        vy: 2 + Math.random() * 4,
+        vx: (Math.random() - 0.5) * 2.5,
+        vy: 1.5 + Math.random() * 3.5,
         size: 3 + Math.random() * 5,
         rotation: Math.random() * 6,
-        spin: (Math.random() - 0.5) * 0.15,
-        color: randomColor(COLORS)
+        spin: (Math.random() - 0.5) * 0.16,
+        color: randomColor(confettiColors),
+        life: 5 + Math.random() * 4
       });
     }
   }
 
   function updateParticles(dt) {
     for (const p of particles) {
-      p.x += p.vx * dt;
-      p.y += p.vy * dt;
-      p.rotation += p.spin * dt;
+      p.x += p.vx * dt * 60;
+      p.y += p.vy * dt * 60;
+      p.rotation += p.spin * dt * 60;
+      p.vy += 0.035 * dt * 60;
 
-      if (p.y > H + 15) {
+      if (p.y > H + 12) {
         p.y = -10;
         p.x = Math.random() * W;
+        p.vy = 1.5 + Math.random() * 3;
       }
     }
   }
@@ -379,23 +552,59 @@
       ctx.save();
       ctx.translate(p.x, p.y);
       ctx.rotate(p.rotation);
+
       ctx.fillStyle = p.color;
-      ctx.fillRect(-p.size / 2, -p.size / 2, p.size, p.size * 1.5);
+      ctx.shadowColor = p.color;
+      ctx.shadowBlur = 5;
+
+      ctx.fillRect(
+        -p.size / 2,
+        -p.size / 2,
+        p.size,
+        p.size * 1.8
+      );
+
       ctx.restore();
     }
   }
 
+  function createSmallBurst(x, y, color) {
+    for (let i = 0; i < 16; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 1 + Math.random() * 3;
+
+      particles.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        size: 2 + Math.random() * 4,
+        rotation: 0,
+        spin: 0.1,
+        color: color || randomColor(COLORS),
+        life: 1.2
+      });
+    }
+  }
+
+  /* =========================
+     LEVEL AND GAME OVER
+  ========================= */
+
   function checkLevelComplete() {
-    if (!isBoardEmpty() || levelComplete || gameOver) return;
+    if (
+      countBubbles() !== 0 ||
+      levelComplete ||
+      gameOver
+    ) return;
 
     levelComplete = true;
     projectile = null;
+
     createParticles();
 
     updateScore(100 + level * 20);
-    playSound(660, 0.15);
-    setTimeout(() => playSound(880, 0.25), 150);
-    setTimeout(() => playSound(1100, 0.3), 300);
+    playLevelSound();
 
     showOverlay("complete");
   }
@@ -403,11 +612,16 @@
   function checkGameOver() {
     for (let r = 0; r < MAX_ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
-        if (grid[r][c] && rowY(r) + R >= DANGER_Y) {
+        if (
+          grid[r][c] &&
+          rowY(r) + R >= DANGER_Y
+        ) {
           gameOver = true;
           projectile = null;
+
           showOverlay("gameover");
-          playSound(160, 0.35, "triangle");
+          playTone(160, 0.35, "triangle", 0.08);
+
           return true;
         }
       }
@@ -416,12 +630,82 @@
     return false;
   }
 
+  function nextLevel() {
+    level++;
+
+    levelComplete = false;
+    gameOver = false;
+    projectile = null;
+    shotCount = 0;
+    particles = [];
+
+    createGrid();
+
+    currentColor = randomColor(activeColors());
+    nextColor = randomColor(activeColors());
+
+    updateScoreText();
+    updateBallPreview();
+    hideOverlay();
+    saveProgress();
+  }
+
+  function restartLevel() {
+    levelComplete = false;
+    gameOver = false;
+    projectile = null;
+    particles = [];
+    shotCount = 0;
+
+    createGrid();
+
+    currentColor = randomColor(activeColors());
+    nextColor = randomColor(activeColors());
+
+    updateScoreText();
+    updateBallPreview();
+    hideOverlay();
+    saveProgress();
+  }
+
+  function restartWholeGame() {
+    level = 1;
+    score = 0;
+    shotCount = 0;
+
+    levelComplete = false;
+    gameOver = false;
+    projectile = null;
+    particles = [];
+
+    createGrid();
+
+    currentColor = randomColor(activeColors());
+    nextColor = randomColor(activeColors());
+
+    closeSettings();
+    closeRestartConfirm();
+    hideOverlay();
+
+    updateScoreText();
+    updateBallPreview();
+    saveProgress();
+  }
+
+  /* =========================
+     PROJECTILE
+  ========================= */
+
   function attachProjectile(hitRow, hitCol) {
     if (!projectile) return;
 
+    const px = projectile.x;
+    const py = projectile.y;
+    const color = projectile.color;
+
     const cell = findNearestEmpty(
-      projectile.x,
-      projectile.y,
+      px,
+      py,
       hitRow,
       hitCol
     );
@@ -434,104 +718,108 @@
     }
 
     const [r, c] = cell;
-    grid[r][c] = projectile.color;
 
-    const group = findMatchingGroup(r, c, projectile.color);
+    grid[r][c] = color;
+
+    const group = findMatchingGroup(r, c, color);
 
     if (group.length >= 3) {
       for (const [gr, gc] of group) {
+        createSmallBurst(
+          rowX(gr, gc),
+          rowY(gr),
+          grid[gr][gc]
+        );
+
         grid[gr][gc] = null;
       }
 
       const floating = removeFloatingBubbles();
-      const popped = group.length + floating;
 
-      updateScore(group.length * 10 + floating * 15);
-      playSound(520 + Math.min(group.length, 8) * 55, 0.18);
+      updateScore(
+        group.length * 10 + floating * 15
+      );
+
+      playPopSound(group.length);
 
       if (floating > 0) {
-        playSound(300, 0.2, "triangle");
-      }
-
-      if (popped >= 5) {
-        createSmallBurst();
+        playDropSound();
       }
     } else {
       shotCount++;
-
-      // কয়েকটি শটের পর বোর্ডের চাপ বাড়ে, তবে চলতি লেভেলে নতুন সারি যোগ হয় না।
-      if (shotCount % 6 === 0) {
-        playSound(260, 0.12, "triangle");
-      }
     }
 
     projectile = null;
+
     currentColor = nextColor;
     nextColor = randomColor(activeColors());
 
     updateBallPreview();
-    updateScoreText();
 
-    if (!checkGameOver()) checkLevelComplete();
-  }
-
-  function createSmallBurst() {
-    for (let i = 0; i < 18; i++) {
-      particles.push({
-        x: W / 2,
-        y: 180,
-        vx: (Math.random() - 0.5) * 7,
-        vy: (Math.random() - 0.5) * 7,
-        size: 3 + Math.random() * 4,
-        rotation: 0,
-        spin: 0.1,
-        color: randomColor(COLORS)
-      });
+    if (!checkGameOver()) {
+      checkLevelComplete();
     }
   }
 
   function shoot() {
-    if (projectile || levelComplete || gameOver || settingsOpen ||
-        restartConfirmOpen) return;
+    if (
+      projectile ||
+      levelComplete ||
+      gameOver ||
+      settingsOpen ||
+      restartConfirmOpen
+    ) return;
 
-    const dx = aimPoint.x - SHOOTER_X;
-    const dy = aimPoint.y - SHOOTER_Y;
+    let dx = aimPoint.x - SHOOTER_X;
+    let dy = aimPoint.y - SHOOTER_Y;
 
     let length = Math.sqrt(dx * dx + dy * dy);
 
     if (length < 12) {
-      aimPoint = { x: SHOOTER_X, y: 150 };
-      length = 350;
+      dx = 0;
+      dy = -1;
+      length = 1;
     }
 
     let vx = dx / length;
     let vy = dy / length;
 
-    // বলকে সবসময় ওপরের দিকে পাঠানো হবে।
+    // নিচের দিকে বা একেবারে সমান্তরাল শট আটকানো।
     if (vy > -0.12) {
       vy = -0.12;
+
       const horizontal = Math.sqrt(1 - vy * vy);
       vx = (dx < 0 ? -1 : 1) * horizontal;
     }
 
+    // আগের 430 থেকে গতি বাড়ানো হয়েছে।
+    const speed = 590;
+
     projectile = {
       x: SHOOTER_X,
       y: SHOOTER_Y - 8,
-      vx: vx * 430,
-      vy: vy * 430,
+      vx: vx * speed,
+      vy: vy * speed,
       color: currentColor
     };
 
     aiming = false;
-    playSound(420, 0.08);
+    pointerStart = null;
+
+    playShootSound();
   }
 
   function updateProjectile(dt) {
     if (!projectile) return;
 
     const p = projectile;
+
     const step = Math.min(dt, 0.035);
-    const subSteps = Math.max(1, Math.ceil(step / 0.008));
+    const subSteps = Math.max(
+      1,
+      Math.ceil(step / 0.006)
+    );
+
     const subDt = step / subSteps;
 
     for (let i = 0; i < subSteps; i++) {
@@ -541,11 +829,11 @@
       if (p.x <= R) {
         p.x = R;
         p.vx = Math.abs(p.vx);
-        playSound(250, 0.035);
+        playWallSound();
       } else if (p.x >= W - R) {
         p.x = W - R;
         p.vx = -Math.abs(p.vx);
-        playSound(250, 0.035);
+        playWallSound();
       }
 
       if (p.y <= R) {
@@ -563,6 +851,30 @@
     }
   }
 
+  /* =========================
+     BUBBLE DRAWING
+  ========================= */
+
+  function shadeColor(color, amount) {
+    const num = parseInt(
+      color.replace("#", ""),
+      16
+    );
+
+    let r = (num >> 16) + amount;
+    let g = ((num >> 8) & 255) + amount;
+    let b = (num & 255) + amount;
+
+    r = Math.max(0, Math.min(255, r));
+    g = Math.max(0, Math.min(255, g));
+    b = Math.max(0, Math.min(255, b));
+
+    return "#" +
+      (0x1000000 + r * 0x10000 + g * 0x100 + b)
+        .toString(16)
+        .slice(1);
+  }
+
   function drawBubble(x, y, color, radius) {
     const r = radius || R;
 
@@ -577,7 +889,10 @@
 
     gradient.addColorStop(0, "#ffffff");
     gradient.addColorStop(0.18, color);
-    gradient.addColorStop(1, shadeColor(color, -35));
+    gradient.addColorStop(
+      1,
+      shadeColor(color, -40)
+    );
 
     ctx.beginPath();
     ctx.arc(x, y, r, 0, Math.PI * 2);
@@ -585,67 +900,91 @@
     ctx.fill();
 
     ctx.beginPath();
-    ctx.arc(x - r * 0.35, y - r * 0.4, r * 0.25, 0, Math.PI * 2);
-    ctx.fillStyle = "rgba(255,255,255,0.55)";
+    ctx.arc(
+      x - r * 0.35,
+      y - r * 0.4,
+      r * 0.24,
+      0,
+      Math.PI * 2
+    );
+
+    ctx.fillStyle = "rgba(255,255,255,0.65)";
     ctx.fill();
   }
 
-  function shadeColor(color, percent) {
-    const num = parseInt(color.replace("#", ""), 16);
-    let r = (num >> 16) + percent;
-    let g = ((num >> 8) & 0x00ff) + percent;
-    let b = (num & 0x0000ff) + percent;
+  /* =========================
+     AIM LINE + BOUNCE
+  ========================= */
 
-    r = Math.max(0, Math.min(255, r));
-    g = Math.max(0, Math.min(255, g));
-    b = Math.max(0, Math.min(255, b));
-
-    return "#" + (0x1000000 + r * 0x10000 + g * 0x100 + b)
-      .toString(16)
-      .slice(1);
-  }
-
-  function drawAimLine() {
-    if (!aiming || projectile || levelComplete || gameOver) return;
-
+  function getAimDirection() {
     let dx = aimPoint.x - SHOOTER_X;
     let dy = aimPoint.y - SHOOTER_Y;
+
     let length = Math.sqrt(dx * dx + dy * dy);
 
-    if (length < 10) return;
+    if (length < 10) {
+      return { vx: 0, vy: -1 };
+    }
 
     let vx = dx / length;
     let vy = dy / length;
 
     if (vy > -0.12) {
       vy = -0.12;
-      const h = Math.sqrt(1 - vy * vy);
-      vx = (dx < 0 ? -1 : 1) * h;
+
+      const horizontal = Math.sqrt(1 - vy * vy);
+      vx = (dx < 0 ? -1 : 1) * horizontal;
     }
+
+    return { vx, vy };
+  }
+
+  function drawAimLine() {
+    if (
+      !aiming ||
+      projectile ||
+      levelComplete ||
+      gameOver
+    ) return;
+
+    const direction = getAimDirection();
+
+    let vx = direction.vx;
+    let vy = direction.vy;
 
     let x = SHOOTER_X;
     let y = SHOOTER_Y - 8;
-    let hitPoint = null;
+
     let bounces = 0;
+    let hitPoint = null;
 
     ctx.save();
-    ctx.setLineDash([4, 6]);
+
     ctx.lineWidth = 2;
-    ctx.strokeStyle = "rgba(255,255,255,0.85)";
+    ctx.strokeStyle = "rgba(255,255,255,0.9)";
+    ctx.setLineDash([5, 5]);
+
     ctx.beginPath();
     ctx.moveTo(x, y);
 
-    // সর্বোচ্চ দুইবার দেয়ালে বাউন্স দেখানো হবে।
-    for (let i = 0; i < 900; i++) {
-      x += vx * 3;
-      y += vy * 3;
+    // সর্বোচ্চ দুইবার দেয়ালে বাউন্স।
+    // বলের আঘাত বা ছাদের কাছে পৌঁছালে রেখা থামবে।
+    for (let i = 0; i < 1100; i++) {
+      x += vx * 2;
+      y += vy * 2;
 
-      if (x <= R || x >= W - R) {
-        x = Math.max(R, Math.min(W - R, x));
-        vx *= -1;
+      if (x <= R) {
+        x = R;
+        vx = Math.abs(vx);
         bounces++;
+      } else if (x >= W - R) {
+        x = W - R;
+        vx = -Math.abs(vx);
+        bounces++;
+      }
 
-        if (bounces > 2) break;
+      if (bounces > 2) {
+        break;
       }
 
       if (y <= R) {
@@ -672,24 +1011,43 @@
 
     if (hitPoint) {
       ctx.beginPath();
-      ctx.arc(hitPoint.x, hitPoint.y, 5, 0, Math.PI * 2);
+      ctx.arc(
+        hitPoint.x,
+        hitPoint.y,
+        5,
+        0,
+        Math.PI * 2
+      );
+
       ctx.fillStyle = "#ffffff";
+      ctx.shadowColor = "#ffffff";
+      ctx.shadowBlur = 8;
       ctx.fill();
+      ctx.shadowBlur = 0;
     }
 
     ctx.restore();
   }
 
+  /* =========================
+     BOARD DRAWING
+  ========================= */
+
   function drawBoard() {
+    if (!ctx) return;
+
     ctx.clearRect(0, 0, W, H);
 
-    const bg = ctx.createLinearGradient(0, 0, 0, H);
+    const bg = ctx.createLinearGradient(
+      0, 0, 0, H
+    );
+
     bg.addColorStop(0, "#15234c");
     bg.addColorStop(1, "#08132e");
+
     ctx.fillStyle = bg;
     ctx.fillRect(0, 0, W, H);
 
-    // উপরের বোর্ডের সীমানা।
     ctx.strokeStyle = "rgba(255,255,255,0.12)";
     ctx.lineWidth = 1;
     ctx.strokeRect(5, 5, W - 10, DANGER_Y - 5);
@@ -697,7 +1055,11 @@
     for (let r = 0; r < MAX_ROWS; r++) {
       for (let c = 0; c < COLS; c++) {
         if (grid[r][c]) {
-          drawBubble(rowX(r, c), rowY(r), grid[r][c]);
+          drawBubble(
+            rowX(r, c),
+            rowY(r),
+            grid[r][c]
+          );
         }
       }
     }
@@ -707,46 +1069,68 @@
     ctx.setLineDash([7, 6]);
     ctx.strokeStyle = "rgba(255,90,90,0.75)";
     ctx.lineWidth = 2;
+
     ctx.beginPath();
     ctx.moveTo(5, DANGER_Y);
     ctx.lineTo(W - 5, DANGER_Y);
     ctx.stroke();
+
     ctx.restore();
 
     drawAimLine();
 
     // Shooter base.
     ctx.beginPath();
-    ctx.arc(SHOOTER_X, SHOOTER_Y, 24, Math.PI, 0);
+    ctx.arc(
+      SHOOTER_X,
+      SHOOTER_Y,
+      24,
+      Math.PI,
+      0
+    );
+
     ctx.fillStyle = "#40558a";
     ctx.fill();
 
     ctx.beginPath();
-    ctx.arc(SHOOTER_X, SHOOTER_Y, 15, 0, Math.PI * 2);
+    ctx.arc(
+      SHOOTER_X,
+      SHOOTER_Y,
+      15,
+      0,
+      Math.PI * 2
+    );
+
     ctx.fillStyle = "#dbeafe";
     ctx.fill();
 
-    drawBubble(SHOOTER_X, SHOOTER_Y - 8, currentColor, 13);
+    drawBubble(
+      SHOOTER_X,
+      SHOOTER_Y - 8,
+      currentColor,
+      13
+    );
 
     if (projectile) {
-      drawBubble(projectile.x, projectile.y, projectile.color);
+      drawBubble(
+        projectile.x,
+        projectile.y,
+        projectile.color
+      );
     }
 
     drawParticles();
   }
 
-  function updateBallPreview() {
-    const current = root && root.querySelector("#bs-current");
-    const next = root && root.querySelector("#bs-next");
-
-    if (current) current.style.background = currentColor;
-    if (next) next.style.background = nextColor;
-  }
+  /* =========================
+     OVERLAYS
+  ========================= */
 
   function showOverlay(type) {
     if (!root) return;
 
     const overlay = root.querySelector("#bs-overlay");
+
     if (!overlay) return;
 
     overlay.style.display = "flex";
@@ -754,147 +1138,167 @@
     if (type === "complete") {
       overlay.innerHTML = `
         <div class="bs-modal bs-celebrate">
-          <div class="bs-big-emoji">🎉</div>
+          <div class="bs-big-emoji">🏆🎉</div>
           <h2>লেভেল সম্পন্ন!</h2>
           <p>অসাধারণ খেলেছেন!</p>
-          <div class="bs-modal-score">স্কোর: ${score}</div>
-          <button id="bs-next-level" class="bs-primary">পরের লেভেল ▶</button>
+          <div class="bs-modal-score">
+            স্কোর: ${score}
+          </div>
+          <div class="bs-confetti-label">
+            ✨ অভিনন্দন! ✨
+          </div>
+          <button id="bs-next-level" class="bs-primary">
+            পরের লেভেল ▶
+          </button>
         </div>
       `;
 
-      overlay.querySelector("#bs-next-level").onclick = nextLevel;
-    } else if (type === "gameover") {
+      overlay.querySelector(
+        "#bs-next-level"
+      ).onclick = nextLevel;
+    }
+
+    if (type === "gameover") {
       overlay.innerHTML = `
         <div class="bs-modal">
           <div class="bs-big-emoji">😢</div>
           <h2>গেম ওভার!</h2>
           <p>বল বিপদসীমায় পৌঁছে গেছে।</p>
-          <div class="bs-modal-score">স্কোর: ${score}</div>
-          <button id="bs-try-again" class="bs-primary">আবার খেলুন</button>
+          <div class="bs-modal-score">
+            স্কোর: ${score}
+          </div>
+          <button id="bs-try-again" class="bs-primary">
+            আবার খেলুন
+          </button>
         </div>
       `;
 
-      overlay.querySelector("#bs-try-again").onclick = restartLevel;
+      overlay.querySelector(
+        "#bs-try-again"
+      ).onclick = restartLevel;
     }
   }
 
   function hideOverlay() {
-    const overlay = root && root.querySelector("#bs-overlay");
-    if (overlay) overlay.style.display = "none";
+    const overlay = root &&
+      root.querySelector("#bs-overlay");
+
+    if (overlay) {
+      overlay.style.display = "none";
+      overlay.innerHTML = "";
+    }
   }
 
-  function nextLevel() {
-    level++;
-    levelComplete = false;
-    gameOver = false;
-    projectile = null;
-    shotCount = 0;
-    particles = [];
-
-    createGrid();
-    currentColor = randomColor(activeColors());
-    nextColor = randomColor(activeColors());
-
-    updateScoreText();
-    updateBallPreview();
-    hideOverlay();
-    saveProgress();
-  }
-
-  function restartLevel() {
-    levelComplete = false;
-    gameOver = false;
-    projectile = null;
-    particles = [];
-    shotCount = 0;
-
-    createGrid();
-    currentColor = randomColor(activeColors());
-    nextColor = randomColor(activeColors());
-
-    updateScoreText();
-    updateBallPreview();
-    hideOverlay();
-    saveProgress();
-  }
-
-  function restartWholeGame() {
-    level = 1;
-    score = 0;
-    shotCount = 0;
-    levelComplete = false;
-    gameOver = false;
-    projectile = null;
-    particles = [];
-
-    createGrid();
-    currentColor = randomColor(activeColors());
-    nextColor = randomColor(activeColors());
-
-    settingsOpen = false;
-    restartConfirmOpen = false;
-
-    updateScoreText();
-    updateBallPreview();
-    hideOverlay();
-    closeSettings();
-    closeRestartConfirm();
-    saveProgress();
-  }
+  /* =========================
+     SETTINGS
+  ========================= */
 
   function openSettings() {
+    if (levelComplete || gameOver) return;
+
     settingsOpen = true;
+
     const panel = root.querySelector("#bs-settings");
-    if (panel) panel.style.display = "flex";
+
+    if (panel) {
+      panel.style.display = "flex";
+    }
   }
 
   function closeSettings() {
     settingsOpen = false;
-    const panel = root && root.querySelector("#bs-settings");
-    if (panel) panel.style.display = "none";
+
+    const panel = root &&
+      root.querySelector("#bs-settings");
+
+    if (panel) {
+      panel.style.display = "none";
+    }
   }
 
   function openRestartConfirm() {
     restartConfirmOpen = true;
+
     const panel = root.querySelector("#bs-confirm");
-    if (panel) panel.style.display = "flex";
+
+    if (panel) {
+      panel.style.display = "flex";
+    }
   }
 
   function closeRestartConfirm() {
     restartConfirmOpen = false;
-    const panel = root && root.querySelector("#bs-confirm");
-    if (panel) panel.style.display = "none";
+
+    const panel = root &&
+      root.querySelector("#bs-confirm");
+
+    if (panel) {
+      panel.style.display = "none";
+    }
+  }
+
+  function updateSoundButton() {
+    const button = root &&
+      root.querySelector("#bs-sound-btn");
+
+    if (button) {
+      button.textContent = soundOn
+        ? "🔊 সাউন্ড বন্ধ করুন"
+        : "🔇 সাউন্ড চালু করুন";
+    }
   }
 
   function changeBall() {
-    if (projectile || levelComplete || gameOver) return;
+    if (
+      projectile ||
+      levelComplete ||
+      gameOver ||
+      settingsOpen
+    ) return;
 
     const old = currentColor;
+
     currentColor = nextColor;
     nextColor = old;
 
     updateBallPreview();
-    playSound(600, 0.07);
+    playTone(600, 0.07, "sine", 0.06);
   }
+
+  /* =========================
+     POINTER / TOUCH CONTROL
+  ========================= */
 
   function getCanvasPoint(event) {
     const rect = canvas.getBoundingClientRect();
 
     return {
-      x: (event.clientX - rect.left) * (W / rect.width),
-      y: (event.clientY - rect.top) * (H / rect.height)
+      x: (event.clientX - rect.left) *
+        (W / rect.width),
+
+      y: (event.clientY - rect.top) *
+        (H / rect.height)
     };
   }
 
   function onPointerDown(event) {
-    if (settingsOpen || restartConfirmOpen || levelComplete || gameOver ||
-        projectile) return;
+    if (
+      settingsOpen ||
+      restartConfirmOpen ||
+      levelComplete ||
+      gameOver ||
+      projectile
+    ) return;
 
     event.preventDefault();
 
+    unlockAudio();
+
     const point = getCanvasPoint(event);
+
     pointerStart = point;
     aimPoint = point;
+    pointerMoved = false;
     aiming = true;
 
     try {
@@ -906,7 +1310,20 @@
     if (!aiming || !pointerStart) return;
 
     event.preventDefault();
-    aimPoint = getCanvasPoint(event);
+
+    const point = getCanvasPoint(event);
+
+    const dx = point.x - pointerStart.x;
+    const dy = point.y - pointerStart.y;
+
+    if (
+      Math.abs(dx) > 3 ||
+      Math.abs(dy) > 3
+    ) {
+      pointerMoved = true;
+    }
+
+    aimPoint = point;
   }
 
   function onPointerUp(event) {
@@ -914,19 +1331,29 @@
 
     event.preventDefault();
 
-    if (event.type !== "pointercancel") {
-      aimPoint = getCanvasPoint(event);
-      shoot();
-    } else {
+    if (event.type === "pointercancel") {
       aiming = false;
+      pointerStart = null;
+      return;
     }
 
+    aimPoint = getCanvasPoint(event);
+
+    // ট্যাপ অথবা ধরে টেনে ছেড়ে দেওয়া—দুটিই শট।
+    shoot();
+
     pointerStart = null;
+    pointerMoved = false;
   }
+
+  /* =========================
+     INTERFACE
+  ========================= */
 
   function createInterface(box) {
     box.innerHTML = `
       <div id="bs-game" class="bs-game">
+
         <style>
           .bs-game {
             width: 100%;
@@ -942,7 +1369,11 @@
             overflow: hidden;
             user-select: none;
           }
-          .bs-game * { box-sizing: border-box; }
+
+          .bs-game * {
+            box-sizing: border-box;
+          }
+
           .bs-topbar {
             display: flex;
             justify-content: space-between;
@@ -950,6 +1381,7 @@
             gap: 6px;
             margin-bottom: 8px;
           }
+
           .bs-stat {
             background: #223563;
             padding: 7px 9px;
@@ -958,12 +1390,14 @@
             flex: 1;
             font-size: 12px;
           }
+
           .bs-stat strong {
             display: block;
             font-size: 16px;
             margin-top: 3px;
             color: #ffe47a;
           }
+
           .bs-icon-btn {
             border: 0;
             color: #fff;
@@ -973,6 +1407,7 @@
             font-size: 19px;
             cursor: pointer;
           }
+
           .bs-canvas-wrap {
             width: 100%;
             position: relative;
@@ -980,6 +1415,7 @@
             overflow: hidden;
             background: #08132e;
           }
+
           #bs-canvas {
             width: 100%;
             height: auto;
@@ -987,6 +1423,7 @@
             touch-action: none;
             cursor: crosshair;
           }
+
           .bs-bottom {
             display: flex;
             justify-content: space-between;
@@ -994,20 +1431,24 @@
             gap: 8px;
             margin-top: 10px;
           }
+
           .bs-ball-info {
             display: flex;
             align-items: center;
             gap: 8px;
             font-size: 12px;
           }
+
           .bs-preview-ball {
             display: inline-block;
             width: 25px;
             height: 25px;
             border-radius: 50%;
             border: 2px solid rgba(255,255,255,.7);
-            box-shadow: inset -4px -5px 6px rgba(0,0,0,.3);
+            box-shadow:
+              inset -4px -5px 6px rgba(0,0,0,.3);
           }
+
           .bs-change {
             border: 0;
             border-radius: 9px;
@@ -1017,6 +1458,7 @@
             font-weight: bold;
             cursor: pointer;
           }
+
           .bs-overlay {
             position: absolute;
             inset: 0;
@@ -1025,8 +1467,9 @@
             align-items: center;
             justify-content: center;
             padding: 14px;
-            background: rgba(4,10,30,.82);
+            background: rgba(4,10,30,.72);
           }
+
           .bs-modal {
             width: 100%;
             max-width: 300px;
@@ -1037,21 +1480,36 @@
             border-radius: 16px;
             box-shadow: 0 10px 35px rgba(0,0,0,.35);
           }
+
           .bs-modal h2 {
             margin: 8px 0;
             font-size: 23px;
           }
+
           .bs-modal p {
             margin: 8px 0 15px;
             color: #dce7ff;
             font-size: 14px;
           }
-          .bs-big-emoji { font-size: 42px; }
+
+          .bs-big-emoji {
+            font-size: 42px;
+          }
+
           .bs-modal-score {
             margin: 12px 0;
             color: #ffe47a;
             font-weight: bold;
           }
+
+          .bs-confetti-label {
+            margin: 12px 0;
+            color: #ffe47a;
+            font-size: 18px;
+            font-weight: bold;
+            text-shadow: 0 0 10px #ffd700;
+          }
+
           .bs-primary {
             width: 100%;
             border: 0;
@@ -1063,7 +1521,9 @@
             font-weight: bold;
             cursor: pointer;
           }
-          .bs-settings-panel, .bs-confirm-panel {
+
+          .bs-settings-panel,
+          .bs-confirm-panel {
             position: absolute;
             inset: 0;
             z-index: 8;
@@ -1073,6 +1533,7 @@
             padding: 15px;
             background: rgba(4,10,30,.86);
           }
+
           .bs-menu-btn {
             width: 100%;
             margin-top: 10px;
@@ -1085,11 +1546,16 @@
             font-weight: bold;
             cursor: pointer;
           }
-          .bs-menu-btn.danger { background: #b83b4b; }
+
+          .bs-menu-btn.danger {
+            background: #b83b4b;
+          }
+
           .bs-menu-btn.light {
             background: #dbeafe;
             color: #17264b;
           }
+
           .bs-hint {
             text-align: center;
             font-size: 11px;
@@ -1099,47 +1565,124 @@
         </style>
 
         <div class="bs-topbar">
-          <div class="bs-stat">লেভেল<strong id="bs-level">1</strong></div>
-          <div class="bs-stat">স্কোর<strong id="bs-score">0</strong></div>
-          <div class="bs-stat">সেরা<strong id="bs-best">0</strong></div>
-          <button id="bs-settings-btn" class="bs-icon-btn" aria-label="Settings">⚙️</button>
+          <div class="bs-stat">
+            লেভেল
+            <strong id="bs-level">1</strong>
+          </div>
+
+          <div class="bs-stat">
+            স্কোর
+            <strong id="bs-score">0</strong>
+          </div>
+
+          <div class="bs-stat">
+            সেরা
+            <strong id="bs-best">0</strong>
+          </div>
+
+          <button
+            id="bs-settings-btn"
+            class="bs-icon-btn"
+            aria-label="Settings"
+          >⚙️</button>
         </div>
 
         <div class="bs-canvas-wrap">
-          <canvas id="bs-canvas" width="${W}" height="${H}"></canvas>
+
+          <canvas
+            id="bs-canvas"
+            width="${W}"
+            height="${H}"
+          ></canvas>
 
           <div id="bs-overlay" class="bs-overlay"></div>
 
-          <div id="bs-settings" class="bs-settings-panel">
+          <div
+            id="bs-settings"
+            class="bs-settings-panel"
+          >
             <div class="bs-modal">
               <h2>⚙️ সেটিংস</h2>
-              <button id="bs-sound-btn" class="bs-menu-btn"></button>
-              <button id="bs-restart-btn" class="bs-menu-btn danger">🔄 নতুন করে শুরু</button>
-              <button id="bs-settings-close" class="bs-menu-btn light">ফিরে যান</button>
+
+              <button
+                id="bs-sound-btn"
+                class="bs-menu-btn"
+              ></button>
+
+              <button
+                id="bs-restart-btn"
+                class="bs-menu-btn danger"
+              >
+                🔄 নতুন করে শুরু
+              </button>
+
+              <button
+                id="bs-settings-close"
+                class="bs-menu-btn light"
+              >
+                ফিরে যান
+              </button>
             </div>
           </div>
 
-          <div id="bs-confirm" class="bs-confirm-panel">
+          <div
+            id="bs-confirm"
+            class="bs-confirm-panel"
+          >
             <div class="bs-modal">
               <h2>নতুন করে শুরু করবেন?</h2>
-              <p>আপনার বর্তমান লেভেল ও স্কোর মুছে যাবে।</p>
-              <button id="bs-confirm-yes" class="bs-menu-btn danger">হ্যাঁ, শুরু করুন</button>
-              <button id="bs-confirm-no" class="bs-menu-btn light">না, ফিরে যান</button>
+
+              <p>
+                আপনার বর্তমান লেভেল ও স্কোর মুছে যাবে।
+              </p>
+
+              <button
+                id="bs-confirm-yes"
+                class="bs-menu-btn danger"
+              >
+                হ্যাঁ, শুরু করুন
+              </button>
+
+              <button
+                id="bs-confirm-no"
+                class="bs-menu-btn light"
+              >
+                না, ফিরে যান
+              </button>
             </div>
           </div>
+
         </div>
 
         <div class="bs-bottom">
+
           <div class="bs-ball-info">
             <span>এখন:</span>
-            <span id="bs-current" class="bs-preview-ball"></span>
+            <span
+              id="bs-current"
+              class="bs-preview-ball"
+            ></span>
+
             <span>পরের:</span>
-            <span id="bs-next" class="bs-preview-ball"></span>
+            <span
+              id="bs-next"
+              class="bs-preview-ball"
+            ></span>
           </div>
-          <button id="bs-change" class="bs-change">বল পরিবর্তন</button>
+
+          <button
+            id="bs-change"
+            class="bs-change"
+          >
+            বল পরিবর্তন
+          </button>
+
         </div>
 
-        <div class="bs-hint">লক্ষ্য ঠিক করতে টাচ করুন বা ধরে টেনে ছেড়ে দিন</div>
+        <div class="bs-hint">
+          বল লক্ষ্য করতে টাচ করুন, ধরে টেনে ছেড়ে দিন
+        </div>
+
       </div>
     `;
 
@@ -1147,73 +1690,146 @@
     canvas = root.querySelector("#bs-canvas");
     ctx = canvas.getContext("2d");
 
-    root.querySelector("#bs-settings-btn").onclick = openSettings;
-    root.querySelector("#bs-settings-close").onclick = closeSettings;
-    root.querySelector("#bs-restart-btn").onclick = openRestartConfirm;
-    root.querySelector("#bs-confirm-yes").onclick = restartWholeGame;
-    root.querySelector("#bs-confirm-no").onclick = closeRestartConfirm;
-    root.querySelector("#bs-change").onclick = changeBall;
+    root.querySelector(
+      "#bs-settings-btn"
+    ).onclick = openSettings;
 
-    root.querySelector("#bs-sound-btn").onclick = function () {
+    root.querySelector(
+      "#bs-settings-close"
+    ).onclick = closeSettings;
+
+    root.querySelector(
+      "#bs-restart-btn"
+    ).onclick = openRestartConfirm;
+
+    root.querySelector(
+      "#bs-confirm-yes"
+    ).onclick = restartWholeGame;
+
+    root.querySelector(
+      "#bs-confirm-no"
+    ).onclick = closeRestartConfirm;
+
+    root.querySelector(
+      "#bs-change"
+    ).onclick = changeBall;
+
+    root.querySelector(
+      "#bs-sound-btn"
+    ).onclick = function () {
       soundOn = !soundOn;
+
       updateSoundButton();
       saveProgress();
-      if (soundOn) playSound(650, 0.1);
+
+      if (soundOn) {
+        unlockAudio();
+        playTone(650, 0.1, "sine", 0.07);
+      }
     };
 
-    canvas.addEventListener("pointerdown", onPointerDown);
-    canvas.addEventListener("pointermove", onPointerMove);
-    canvas.addEventListener("pointerup", onPointerUp);
-    canvas.addEventListener("pointercancel", onPointerUp);
+    canvas.addEventListener(
+      "pointerdown",
+      onPointerDown
+    );
+
+    canvas.addEventListener(
+      "pointermove",
+      onPointerMove
+    );
+
+    canvas.addEventListener(
+      "pointerup",
+      onPointerUp
+    );
+
+    canvas.addEventListener(
+      "pointercancel",
+      onPointerUp
+    );
 
     updateSoundButton();
     updateScoreText();
     updateBallPreview();
   }
 
-  function updateSoundButton() {
-    const button = root && root.querySelector("#bs-sound-btn");
-    if (button) {
-      button.textContent = soundOn ? "🔊 সাউন্ড বন্ধ করুন" : "🔇 সাউন্ড চালু করুন";
-    }
-  }
+  /* =========================
+     GAME LOOP
+  ========================= */
 
   function loop(timestamp) {
     if (!running || destroyed) return;
 
-    const dt = lastTime ? Math.min((timestamp - lastTime) / 1000, 0.035) : 0.016;
+    const dt = lastTime
+      ? Math.min((timestamp - lastTime) / 1000, 0.035)
+      : 0.016;
+
     lastTime = timestamp;
 
-    if (!settingsOpen && !restartConfirmOpen && !levelComplete && !gameOver) {
+    if (
+      !settingsOpen &&
+      !restartConfirmOpen &&
+      !levelComplete &&
+      !gameOver
+    ) {
       updateProjectile(dt);
     }
 
-    if (levelComplete) updateParticles(dt);
+    if (levelComplete) {
+      updateParticles(dt);
+    }
 
     drawBoard();
+
     animationId = requestAnimationFrame(loop);
   }
+
+  /* =========================
+     CLEANUP
+  ========================= */
 
   function cleanup() {
     running = false;
     destroyed = true;
 
-    if (animationId) cancelAnimationFrame(animationId);
+    if (animationId) {
+      cancelAnimationFrame(animationId);
+    }
 
     if (canvas) {
-      canvas.removeEventListener("pointerdown", onPointerDown);
-      canvas.removeEventListener("pointermove", onPointerMove);
-      canvas.removeEventListener("pointerup", onPointerUp);
-      canvas.removeEventListener("pointercancel", onPointerUp);
+      canvas.removeEventListener(
+        "pointerdown",
+        onPointerDown
+      );
+
+      canvas.removeEventListener(
+        "pointermove",
+        onPointerMove
+      );
+
+      canvas.removeEventListener(
+        "pointerup",
+        onPointerUp
+      );
+
+      canvas.removeEventListener(
+        "pointercancel",
+        onPointerUp
+      );
     }
 
     aiming = false;
     projectile = null;
     particles = [];
+
     root = null;
     canvas = null;
     ctx = null;
   }
+
+  /* =========================
+     START GAME
+  ========================= */
 
   function start(box) {
     if (typeof box === "string") {
@@ -1221,21 +1837,29 @@
     }
 
     if (!box) {
-      console.error("Bubble Shooter: game container not found.");
+      console.error(
+        "Bubble Shooter: game container not found."
+      );
       return;
     }
 
-    if (running) cleanup();
+    if (running) {
+      cleanup();
+    }
 
     destroyed = false;
     running = true;
     lastTime = 0;
+
     projectile = null;
     aiming = false;
+    pointerStart = null;
+
     settingsOpen = false;
     restartConfirmOpen = false;
     levelComplete = false;
     gameOver = false;
+
     particles = [];
 
     loadSave();
