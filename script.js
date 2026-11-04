@@ -603,3 +603,29 @@ function startTicTacToe(box) {
 
   drawBoard();
 }
+let bubbleShooterLoading = null;
+
+function startBubbleShooter(box) {
+  if (!box) return;
+
+  if (window.BubbleShooterPop?.mount) {
+    window.BubbleShooterPop.mount(box);
+    return;
+  }
+
+  if (!bubbleShooterLoading) {
+    bubbleShooterLoading = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = "games/bubble-shooter/bubble-shooter.js";
+      script.onload = resolve;
+      script.onerror = reject;
+      document.head.appendChild(script);
+    });
+  }
+
+  bubbleShooterLoading.then(() => {
+    window.BubbleShooterPop.mount(box);
+  }).catch(() => {
+    box.textContent = "গেম চালু করা যাচ্ছে না।";
+  });
+}
