@@ -38,13 +38,14 @@ function play(name) {
 
   modal.appendChild(box);
   document.body.appendChild(modal);
+if (name === "Quick Quiz") startQuickQuiz(box);
+else if (name === "Math Rush") startMathRush(box);
+else if (name === "Target Tap") startTargetTap(box);
+else if (name === "Tic Tac Toe") startTicTacToe(box);
+else if (name === "Bubble Shooter Pop") startBubbleShooter(box);
 
-  if (name === "Quick Quiz") startQuickQuiz(box);
-  else if (name === "Math Rush") startMathRush(box);
-  else if (name === "Target Tap") startTargetTap(box);
-  else if (name === "Tic Tac Toe") startTicTacToe(box);
-    
-  else {
+else {
+  
     box.innerHTML = `
       <h3>গেম পাওয়া যায়নি</h3>
       <button onclick="closeGame()">বন্ধ করুন</button>
