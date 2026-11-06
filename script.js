@@ -617,7 +617,7 @@ function startBubbleShooter(box) {
   if (!bubbleShooterLoading) {
     bubbleShooterLoading = new Promise((resolve, reject) => {
       const script = document.createElement("script");
-      script.src = "games/bubble-shooter/bubble-shooter.js";
+      script.src = "bubble-shooter.js";
       script.onload = resolve;
       script.onerror = reject;
       document.head.appendChild(script);
