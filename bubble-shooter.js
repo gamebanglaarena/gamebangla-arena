@@ -1,4 +1,4 @@
-/* BUBBLE SHOOTER POP — Enhanced Edition */
+/* BUBBLE SHOOTER POP — GORGEOUS EDITION */
 (() => {
   "use strict";
 
@@ -9,89 +9,131 @@
 
   const W = 420, H = 720, R = 16;
   const COLS = 10, STEP_X = 34, STEP_Y = 29.5, START_X = 38;
+
+  /* আরও উজ্জ্বল ও গর্জিয়াস রং */
   const COLORS = [
-    "#ff3b6b", "#36c9ff", "#ffd43b",
-    "#9b65ff", "#48e28a", "#ff963c"
+    "#ff1768",
+    "#00d9ff",
+    "#ffe000",
+    "#a855ff",
+    "#00f58a",
+    "#ff7a18"
   ];
 
   let box = null, container = null, canvas = null, ctx = null;
   let bubbles = [], particles = [], confetti = [], projectile = null;
 
   let level = 1, score = 0, shots = 0;
-  let active = false, paused = false, gameOver = false, aiming = false;
+  let active = false, paused = false, gameOver = false;
+  let aiming = false;
   let aimAngle = -Math.PI / 2;
-  let currentColor = COLORS[0], nextColor = COLORS[1];
+
+  let currentColor = COLORS[0];
+  let nextColor = COLORS[1];
 
   let raf = 0, lastTime = 0, audio = null;
-  let soundEnabled = true, volume = 0.45;
+  let soundEnabled = true, volume = 0.55;
   let celebrationTime = 0;
+  let levelCompletePending = false;
 
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const rand = a => a[Math.floor(Math.random() * a.length)];
+
   const shooterX = () => W / 2;
   const shooterY = () => H - 66;
+
+  /* ================= AUDIO ================= */
 
   function ensureAudio() {
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return null;
+
       if (!audio) audio = new AC();
-      if (audio.state === "suspended") audio.resume();
+
+      if (audio.state === "suspended") {
+        audio.resume();
+      }
+
       return audio;
     } catch (_) {
       return null;
     }
   }
 
-  function tone(freq, duration = 0.12, type = "sine", gainValue = 0.12) {
+  function tone(freq, duration = 0.12, type = "sine", gainValue = 0.12, delay = 0) {
     if (!soundEnabled) return;
+
     const ac = ensureAudio();
     if (!ac) return;
 
     try {
       const osc = ac.createOscillator();
       const gain = ac.createGain();
-      const now = ac.currentTime;
+      const now = ac.currentTime + delay;
 
       osc.type = type;
       osc.frequency.setValueAtTime(freq, now);
+
       gain.gain.setValueAtTime(
-        Math.max(0.001, gainValue * volume), now
+        Math.max(0.001, gainValue * volume),
+        now
       );
-      gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+      gain.gain.exponentialRampToValueAtTime(
+        0.001,
+        now + duration
+      );
 
       osc.connect(gain);
       gain.connect(ac.destination);
+
       osc.start(now);
       osc.stop(now + duration);
     } catch (_) {}
   }
 
   function playPop() {
-    tone(620, 0.09, "sine", 0.16);
-    setTimeout(() => tone(880, 0.11, "triangle", 0.12), 55);
+    tone(620, 0.12, "sine", 0.17);
+    tone(880, 0.13, "triangle", 0.14, 0.06);
+    tone(1180, 0.09, "sine", 0.08, 0.11);
+  }
+
+  function playShoot() {
+    tone(280, 0.08, "triangle", 0.10);
+    tone(520, 0.07, "sine", 0.06, 0.025);
   }
 
   function playLevelUp() {
-    tone(523, 0.16, "triangle", 0.15);
-    setTimeout(() => tone(659, 0.16, "triangle", 0.15), 130);
-    setTimeout(() => tone(784, 0.2, "triangle", 0.16), 260);
-    setTimeout(() => tone(1046, 0.3, "sine", 0.16), 390);
+    tone(523, 0.20, "triangle", 0.16);
+    tone(659, 0.20, "triangle", 0.16, 0.13);
+    tone(784, 0.23, "triangle", 0.17, 0.26);
+    tone(1046, 0.32, "sine", 0.18, 0.40);
+    tone(1318, 0.38, "sine", 0.12, 0.53);
   }
 
   function playGameOver() {
-    tone(330, 0.2, "triangle", 0.14);
-    setTimeout(() => tone(240, 0.25, "triangle", 0.14), 180);
-    setTimeout(() => tone(150, 0.4, "sawtooth", 0.12), 380);
+    tone(330, 0.20, "triangle", 0.14);
+    tone(240, 0.25, "triangle", 0.14, 0.18);
+    tone(150, 0.40, "sawtooth", 0.12, 0.38);
   }
 
-  /* SAVE / RESTORE */
+  function playCelebration() {
+    playLevelUp();
+    tone(1568, 0.18, "sine", 0.10, 0.65);
+    tone(1760, 0.22, "sine", 0.10, 0.82);
+  }
+
+  /* ================= SAVE / RESTORE ================= */
 
   function saveGame() {
     try {
       const data = {
         version: 2,
-        level, score, shots,
+        level,
+        score,
+        shots,
+
         bubbles: bubbles.map(b => ({
           row: b.row,
           col: b.col,
@@ -99,13 +141,16 @@
           y: b.y,
           color: b.color
         })),
+
         projectile: projectile ? { ...projectile } : null,
+
         currentColor,
         nextColor,
         aimAngle,
         soundEnabled,
         volume,
-        gameOver
+        gameOver,
+        levelCompletePending
       };
 
       localStorage.setItem(SAVE_KEY, JSON.stringify(data));
@@ -125,7 +170,6 @@
         !data ||
         data.version !== 2 ||
         !Array.isArray(data.bubbles) ||
-        !data.bubbles.length ||
         !Number.isFinite(data.level)
       ) {
         return false;
@@ -145,7 +189,9 @@
         )
         .map(b => ({ ...b }));
 
-      if (!bubbles.length) return false;
+      if (!bubbles.length && !data.gameOver && !data.levelCompletePending) {
+        return false;
+      }
 
       projectile = data.projectile &&
         Number.isFinite(data.projectile.x) &&
@@ -154,17 +200,22 @@
         : null;
 
       currentColor = COLORS.includes(data.currentColor)
-        ? data.currentColor : rand(COLORS);
+        ? data.currentColor
+        : rand(COLORS);
 
       nextColor = COLORS.includes(data.nextColor)
-        ? data.nextColor : rand(COLORS);
+        ? data.nextColor
+        : rand(COLORS);
 
       aimAngle = Number.isFinite(data.aimAngle)
-        ? data.aimAngle : -Math.PI / 2;
+        ? data.aimAngle
+        : -Math.PI / 2;
 
       soundEnabled = data.soundEnabled !== false;
-      volume = clamp(Number(data.volume) || 0.45, 0, 1);
+      volume = clamp(Number(data.volume) || 0.55, 0, 1);
+
       gameOver = data.gameOver === true;
+      levelCompletePending = data.levelCompletePending === true;
 
       return true;
     } catch (_) {
@@ -178,7 +229,7 @@
     } catch (_) {}
   }
 
-  /* INTERFACE */
+  /* ================= INTERFACE ================= */
 
   function createContainer(mountPoint) {
     container = document.createElement("section");
@@ -186,29 +237,32 @@
 
     container.style.cssText = [
       "width:100%",
-      "max-width:500px",
-      "height:min(96dvh,900px)",
+      "max-width:560px",
+      "height:98dvh",
+      "max-height:980px",
       "min-height:0",
       "margin:auto",
       "position:relative",
       "overflow:hidden",
       "display:flex",
       "flex-direction:column",
-      "border-radius:24px",
+      "border-radius:20px",
       "background:#10132d",
       "color:white",
       "font-family:Arial,sans-serif",
       "box-shadow:0 20px 65px #000b",
-      "border:1px solid #ffffff25"
+      "border:1px solid #ffffff30"
     ].join(";");
 
     container.innerHTML = `
       <style>
-        #${GAME_ID},#${GAME_ID} *{box-sizing:border-box}
+        #${GAME_ID},#${GAME_ID} *{
+          box-sizing:border-box;
+        }
 
         #${GAME_ID}{
           background:
-            radial-gradient(circle at 50% 0%,#394b91 0%,#171d43 42%,#0c1028 100%);
+            radial-gradient(circle at 50% 0%,#5369c5 0%,#171d43 43%,#080d25 100%);
         }
 
         #${GAME_ID} .bsp-top{
@@ -217,8 +271,8 @@
           align-items:center;
           justify-content:space-between;
           gap:8px;
-          padding:11px 13px;
-          background:linear-gradient(120deg,#354b9b,#6638a5,#253b82);
+          padding:8px 12px;
+          background:linear-gradient(120deg,#354b9b,#8138bd,#174b9d);
           border-bottom:1px solid #ffffff35;
           box-shadow:0 4px 16px #0005;
         }
@@ -227,17 +281,17 @@
           font-weight:900;
           font-size:15px;
           letter-spacing:.5px;
-          text-shadow:0 2px 5px #0008;
+          text-shadow:0 2px 8px #000a;
         }
 
         #${GAME_ID} .bsp-close{
-          width:38px;height:36px;
+          width:36px;
+          height:34px;
           padding:0!important;
-          border-radius:12px!important;
+          border-radius:11px!important;
           background:linear-gradient(145deg,#ff6683,#d51e53)!important;
           font-size:22px!important;
           line-height:1;
-          box-shadow:0 4px 10px #0005;
         }
 
         #${GAME_ID} .bsp-stats{
@@ -245,24 +299,24 @@
           display:flex;
           justify-content:space-around;
           gap:5px;
-          padding:9px 5px;
-          background:#ffffff0d;
+          padding:6px 5px;
+          background:#ffffff12;
           text-align:center;
           font-weight:800;
         }
 
         #${GAME_ID} .bsp-stat{
-          font-size:11px;
-          color:#dce5ff;
+          font-size:10px;
+          color:#e6eaff;
           letter-spacing:1px;
         }
 
         #${GAME_ID} .bsp-value{
           display:block;
           color:#ffe58b;
-          font-size:20px;
-          margin-top:3px;
-          text-shadow:0 2px 8px #ffca4d55;
+          font-size:19px;
+          margin-top:2px;
+          text-shadow:0 2px 10px #ffca4d88;
         }
 
         #${GAME_ID} .bsp-board{
@@ -273,7 +327,7 @@
           justify-content:center;
           overflow:hidden;
           background:
-            radial-gradient(ellipse at 50% 30%,#263c78 0%,#151d42 55%,#0c122e 100%);
+            radial-gradient(ellipse at 50% 30%,#263c78 0%,#151d42 55%,#080e29 100%);
         }
 
         #${GAME_ID} canvas{
@@ -290,58 +344,75 @@
           display:flex;
           justify-content:center;
           gap:7px;
-          padding:9px 7px calc(9px + env(safe-area-inset-bottom));
+          padding:7px 6px calc(7px + env(safe-area-inset-bottom));
           background:linear-gradient(120deg,#151a3d,#28265c,#151a3d);
-          border-top:1px solid #ffffff20;
+          border-top:1px solid #ffffff25;
         }
 
         #${GAME_ID} button{
-          border:1px solid #ffffff25;
+          border:1px solid #ffffff35;
           border-radius:13px;
-          padding:10px 11px;
+          padding:9px 11px;
           color:white;
           background:linear-gradient(145deg,#638bff,#7044d7);
           font-weight:800;
           font-size:13px;
           cursor:pointer;
           white-space:nowrap;
-          box-shadow:0 4px 10px #0004,inset 0 1px 1px #ffffff55;
+          box-shadow:
+            0 4px 10px #0005,
+            inset 0 1px 2px #ffffff77;
           transition:transform .12s;
         }
 
-        #${GAME_ID} button:active{transform:scale(.95)}
+        #${GAME_ID} button:active{
+          transform:scale(.95);
+        }
 
+        /* Celebration-এর সময় পেছনের কনফেটি দেখা যাবে */
         #${GAME_ID} .bsp-overlay{
           position:absolute;
           inset:0;
           display:flex;
           align-items:center;
           justify-content:center;
-          padding:18px;
-          background:#080d20df;
-          backdrop-filter:blur(7px);
+          padding:15px;
+          background:#080d207e;
+          backdrop-filter:blur(3px);
+          -webkit-backdrop-filter:blur(3px);
           z-index:5;
         }
 
         #${GAME_ID} .bsp-panel{
-          background:linear-gradient(145deg,#354c91,#24234f 60%,#452d77);
-          border:1px solid #ffffff55;
+          background:linear-gradient(145deg,#354c91ee,#24234fee 60%,#452d77ee);
+          border:1px solid #ffffff70;
           border-radius:24px;
-          padding:23px 17px;
+          padding:22px 16px;
           text-align:center;
           width:min(90%,340px);
-          box-shadow:0 18px 55px #000a,inset 0 1px 1px #ffffff33;
+          box-shadow:
+            0 18px 55px #000b,
+            inset 0 1px 2px #ffffff55;
         }
 
         #${GAME_ID} .bsp-panel h2{
           color:#ffe58b;
           margin:0 0 10px;
-          text-shadow:0 2px 10px #ffcf5c55;
+          text-shadow:0 2px 12px #ffcf5c88;
         }
 
-        #${GAME_ID} .bsp-panel p{line-height:1.55;color:#f0f2ff}
-        #${GAME_ID} .bsp-panel button{margin:5px}
-        #${GAME_ID} .bsp-hidden{display:none!important}
+        #${GAME_ID} .bsp-panel p{
+          line-height:1.55;
+          color:#f0f2ff;
+        }
+
+        #${GAME_ID} .bsp-panel button{
+          margin:5px;
+        }
+
+        #${GAME_ID} .bsp-hidden{
+          display:none!important;
+        }
 
         #${GAME_ID} .bsp-setting-row{
           display:flex;
@@ -352,15 +423,43 @@
           color:white;
         }
 
-        #${GAME_ID} input[type=range]{width:130px;accent-color:#ffdc70}
-        #${GAME_ID} input[type=checkbox]{width:20px;height:20px;accent-color:#8d74ff}
+        #${GAME_ID} input[type=range]{
+          width:130px;
+          accent-color:#ffdc70;
+        }
 
-        @media(max-height:620px){
-          #${GAME_ID}{height:96dvh!important}
-          #${GAME_ID} .bsp-top{padding:5px 9px}
-          #${GAME_ID} .bsp-stats{padding:4px}
-          #${GAME_ID} .bsp-controls{padding:5px}
-          #${GAME_ID} button{padding:8px 9px;font-size:12px}
+        #${GAME_ID} input[type=checkbox]{
+          width:20px;
+          height:20px;
+          accent-color:#8d74ff;
+        }
+
+        @media(max-height:650px){
+          #${GAME_ID}{
+            height:98dvh!important;
+            border-radius:12px;
+          }
+
+          #${GAME_ID} .bsp-top{
+            padding:4px 8px;
+          }
+
+          #${GAME_ID} .bsp-stats{
+            padding:3px;
+          }
+
+          #${GAME_ID} .bsp-value{
+            font-size:16px;
+          }
+
+          #${GAME_ID} .bsp-controls{
+            padding:4px;
+          }
+
+          #${GAME_ID} button{
+            padding:7px 8px;
+            font-size:11px;
+          }
         }
       </style>
 
@@ -430,7 +529,7 @@
     get("bsp-overlay").classList.add("bsp-hidden");
   }
 
-  /* BOARD LOGIC */
+  /* ================= BOARD LOGIC ================= */
 
   function position(row, col) {
     return {
@@ -448,7 +547,12 @@
   function chooseBoardColor(exclude) {
     const available = activeColors();
     const choices = available.filter(c => c !== exclude);
-    return rand(choices.length ? choices : (available.length ? available : COLORS));
+
+    return rand(
+      choices.length
+        ? choices
+        : (available.length ? available : COLORS)
+    );
   }
 
   function refreshShooterColors() {
@@ -460,7 +564,9 @@
       return;
     }
 
-    if (!available.includes(currentColor)) currentColor = rand(available);
+    if (!available.includes(currentColor)) {
+      currentColor = rand(available);
+    }
 
     if (!available.includes(nextColor) || nextColor === currentColor) {
       nextColor = chooseBoardColor(currentColor);
@@ -482,14 +588,20 @@
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < COLS; col++) {
         if (Math.random() < density) {
-          bubbles.push({ ...position(row, col), color: rand(palette) });
+          bubbles.push({
+            ...position(row, col),
+            color: rand(palette)
+          });
         }
       }
     }
 
     if (bubbles.length < 3) {
       for (let col = 0; col < 3; col++) {
-        bubbles.push({ ...position(0, col), color: palette[0] });
+        bubbles.push({
+          ...position(0, col),
+          color: palette[0]
+        });
       }
     }
 
@@ -500,11 +612,14 @@
   function start(resetAll = true) {
     if (resetAll) {
       clearSavedGame();
+
       level = 1;
       score = 0;
       shots = 0;
       projectile = null;
       gameOver = false;
+      levelCompletePending = false;
+
       createBoard();
     }
 
@@ -512,14 +627,17 @@
     paused = false;
     active = true;
     aiming = false;
+
     particles = [];
     confetti = [];
+    celebrationTime = 0;
 
     updateUI();
     hideOverlay();
 
     cancelAnimationFrame(raf);
     lastTime = performance.now();
+
     saveGame();
     raf = requestAnimationFrame(loop);
   }
@@ -529,10 +647,11 @@
 
     currentColor = chooseBoardColor(currentColor);
     tone(680, 0.1, "triangle");
+
     saveGame();
   }
 
-  /* SETTINGS */
+  /* ================= SETTINGS ================= */
 
   function settings() {
     if (!active || gameOver) return;
@@ -540,22 +659,31 @@
     paused = true;
     saveGame();
 
-    showOverlay("⚙ SETTINGS", "সাউন্ড ও গেম সেটিংস", "খেলায় ফিরুন", "নতুন করে শুরু");
+    showOverlay(
+      "⚙ SETTINGS",
+      "সাউন্ড ও গেম সেটিংস",
+      "খেলায় ফিরুন",
+      "নতুন করে শুরু"
+    );
 
     get("bsp-extra").innerHTML = `
       <div class="bsp-setting-row">
         <label for="bsp-sound">Sound</label>
         <input id="bsp-sound" type="checkbox" ${soundEnabled ? "checked" : ""}>
       </div>
+
       <div class="bsp-setting-row">
         <label for="bsp-volume">Volume</label>
-        <input id="bsp-volume" type="range" min="0" max="100" value="${Math.round(volume * 100)}">
+        <input id="bsp-volume" type="range"
+          min="0" max="100" value="${Math.round(volume * 100)}">
       </div>
     `;
 
     get("bsp-sound").onchange = e => {
       soundEnabled = e.target.checked;
+
       if (soundEnabled) tone(700);
+
       saveGame();
     };
 
@@ -580,7 +708,13 @@
 
     if (paused) {
       saveGame();
-      showOverlay("PAUSED", "খেলা সাময়িক বন্ধ আছে", "আবার খেলুন", "Settings");
+
+      showOverlay(
+        "PAUSED",
+        "খেলা সাময়িক বন্ধ আছে",
+        "আবার খেলুন",
+        "Settings"
+      );
 
       get("bsp-primary").onclick = () => {
         paused = false;
@@ -595,10 +729,11 @@
     }
   }
 
-  /* AIM AND SHOOT */
+  /* ================= AIM AND SHOOT ================= */
 
   function pointerPosition(e) {
     const rect = canvas.getBoundingClientRect();
+
     return {
       x: (e.clientX - rect.left) / rect.width * W,
       y: (e.clientY - rect.top) / rect.height * H
@@ -612,6 +747,8 @@
       -0.2
     );
   }
+
+  /* আগের মতোই: টাচ করে ছেড়ে দিলে বল ছুটবে */
 
   function pointerDown(e) {
     ensureAudio();
@@ -627,7 +764,9 @@
   }
 
   function pointerMove(e) {
-    if (aiming) aimAngle = calculateAngle(pointerPosition(e));
+    if (aiming) {
+      aimAngle = calculateAngle(pointerPosition(e));
+    }
   }
 
   function pointerUp() {
@@ -635,7 +774,9 @@
 
     aiming = false;
 
-    if (active && !paused && !gameOver && !projectile) shoot();
+    if (active && !paused && !gameOver && !projectile) {
+      shoot();
+    }
   }
 
   function shoot() {
@@ -648,50 +789,54 @@
     };
 
     shots++;
+
     currentColor = nextColor;
     nextColor = chooseBoardColor(currentColor);
 
     updateUI();
-    tone(330, 0.08, "triangle", 0.08);
+    playShoot();
     saveGame();
   }
 
-  /* PARTICLES AND CELEBRATION */
+  /* ================= PARTICLES / CELEBRATION ================= */
 
   function makeParticles(x, y, color) {
-    for (let i = 0; i < 15; i++) {
+    for (let i = 0; i < 18; i++) {
       const a = Math.random() * Math.PI * 2;
-      const speed = 55 + Math.random() * 170;
+      const speed = 65 + Math.random() * 190;
 
       particles.push({
-        x, y,
+        x,
+        y,
         vx: Math.cos(a) * speed,
         vy: Math.sin(a) * speed,
-        life: 0.55,
+        life: 0.65,
         color
       });
     }
   }
 
   function celebrate() {
-    celebrationTime = 2.8;
+    celebrationTime = 4.5;
 
-    for (let i = 0; i < 115; i++) {
+    confetti = [];
+
+    for (let i = 0; i < 170; i++) {
       confetti.push({
         x: Math.random() * W,
-        y: -Math.random() * H * 0.65,
-        vx: (Math.random() - 0.5) * 170,
-        vy: 90 + Math.random() * 230,
-        size: 4 + Math.random() * 6,
+        y: -Math.random() * H * 0.8,
+        vx: (Math.random() - 0.5) * 190,
+        vy: 100 + Math.random() * 250,
+        size: 4 + Math.random() * 7,
         rotation: Math.random() * Math.PI,
-        spin: (Math.random() - 0.5) * 8,
+        spin: (Math.random() - 0.5) * 9,
         color: rand(COLORS),
-        life: 3 + Math.random() * 1.5
+        life: 3.5 + Math.random() * 2
       });
     }
   }
 
-  /* BUBBLE CONNECTIONS */
+  /* ================= BUBBLE CONNECTIONS ================= */
 
   function neighbors(b) {
     const row = b.row;
@@ -738,19 +883,26 @@
   }
 
   function dropFloatingBubbles() {
-    const byCell = new Map(bubbles.map(b => [`${b.row},${b.col}`, b]));
+    const byCell = new Map(
+      bubbles.map(b => [`${b.row},${b.col}`, b])
+    );
+
     const connected = new Set();
     const stack = bubbles.filter(b => b.row === 0);
 
     while (stack.length) {
       const b = stack.pop();
+
       if (connected.has(b)) continue;
 
       connected.add(b);
 
       for (const [r, c] of neighbors(b)) {
         const n = byCell.get(`${r},${c}`);
-        if (n && !connected.has(n)) stack.push(n);
+
+        if (n && !connected.has(n)) {
+          stack.push(n);
+        }
       }
     }
 
@@ -758,8 +910,10 @@
 
     if (dropped.length) {
       dropped.forEach(b => makeParticles(b.x, b.y, b.color));
+
       bubbles = bubbles.filter(b => connected.has(b));
       score += dropped.length * 10;
+
       playPop();
     }
   }
@@ -767,13 +921,6 @@
   function cellIsFree(row, col) {
     return !bubbles.some(b => b.row === row && b.col === col);
   }
-
-  /*
-   * বল বসানোর নতুন নিরাপদ পদ্ধতি:
-   * ১. আগে আঘাত করা বলের পাশের খালি ঘর খোঁজে।
-   * ২. পাশের ঘর না পেলে কাছের অন্য খালি ঘর খোঁজে।
-   * ৩. কোনো অবস্থাতেই বল চুপচাপ মুছে ফেলে না।
-   */
 
   function findOpenNeighbor(hitBubble) {
     let candidates = [];
@@ -818,16 +965,23 @@
     return best;
   }
 
+  /* ================= LEVEL COMPLETE ================= */
+
   function finishLevel() {
     level++;
     projectile = null;
+
     celebrate();
-    playLevelUp();
+    playCelebration();
+
     updateUI();
 
     if (level > 20) {
-      active = false;
+      active = true;
+      paused = true;
       gameOver = true;
+      levelCompletePending = false;
+
       saveGame();
 
       showOverlay(
@@ -839,24 +993,30 @@
 
       get("bsp-primary").onclick = () => start(true);
       get("bsp-secondary").onclick = closeGame;
+
       return;
     }
 
     createBoard();
+
     updateUI();
 
     paused = true;
+    levelCompletePending = true;
+
     saveGame();
 
     showOverlay(
       "🎉 LEVEL COMPLETE!",
-      "লেভেল " + (level - 1) + " শেষ! এবার লেভেল " + level + " শুরু করুন।",
+      "লেভেল " + (level - 1) +
+      " শেষ! এবার লেভেল " + level + " শুরু করুন।",
       "পরের লেভেল",
       "বন্ধ করুন"
     );
 
     get("bsp-primary").onclick = () => {
       paused = false;
+      levelCompletePending = false;
       hideOverlay();
       saveGame();
     };
@@ -870,13 +1030,11 @@
     const spot = findOpenNeighbor(hitBubble);
 
     if (!spot) {
-      /*
-       * বোর্ডে আর কোনো জায়গা না থাকলে বল হারাবে না।
-       * গেম ওভার দেখিয়ে বলের অবস্থা সংরক্ষণ করবে।
-       */
       projectile = null;
-      active = false;
+      active = true;
+      paused = true;
       gameOver = true;
+
       saveGame();
 
       showOverlay(
@@ -888,6 +1046,7 @@
 
       get("bsp-primary").onclick = () => start(true);
       get("bsp-secondary").onclick = closeGame;
+
       playGameOver();
       return;
     }
@@ -909,6 +1068,7 @@
       bubbles = bubbles.filter(b => !matched.has(b));
 
       score += matches.length * 15;
+
       playPop();
       dropFloatingBubbles();
     }
@@ -923,8 +1083,10 @@
     refreshShooterColors();
 
     if (bubbles.some(b => b.y >= shooterY() - 70)) {
-      active = false;
+      active = true;
+      paused = true;
       gameOver = true;
+
       celebrate();
       saveGame();
 
@@ -944,14 +1106,16 @@
     saveGame();
   }
 
-  /* PROJECTILE COLLISION */
+  /* ================= PROJECTILE COLLISION ================= */
 
   function distanceToSegment(px, py, x1, y1, x2, y2) {
     const dx = x2 - x1;
     const dy = y2 - y1;
     const length2 = dx * dx + dy * dy;
 
-    if (!length2) return Math.hypot(px - x1, py - y1);
+    if (!length2) {
+      return Math.hypot(px - x1, py - y1);
+    }
 
     const t = clamp(
       ((px - x1) * dx + (py - y1) * dy) / length2,
@@ -966,14 +1130,14 @@
   }
 
   function update(dt) {
-    if (projectile) {
+    /* বলের চলাচল শুধু Pause না থাকলে */
+    if (!paused && !gameOver && projectile) {
       const oldX = projectile.x;
       const oldY = projectile.y;
 
       projectile.x += projectile.vx * dt;
       projectile.y += projectile.vy * dt;
 
-      /* দেয়ালে লাগলে প্রতিফলন */
       if (projectile.x < R) {
         projectile.x = R + (R - projectile.x);
         projectile.vx = Math.abs(projectile.vx);
@@ -984,15 +1148,17 @@
 
       projectile.x = clamp(projectile.x, R, W - R);
 
-      /* দ্রুত চললেও বল যেন অন্য বলের ভেতর দিয়ে চলে না যায় */
       let hitBubble = null;
       let closest = Infinity;
 
       for (const b of bubbles) {
         const distance = distanceToSegment(
-          b.x, b.y,
-          oldX, oldY,
-          projectile.x, projectile.y
+          b.x,
+          b.y,
+          oldX,
+          oldY,
+          projectile.x,
+          projectile.y
         );
 
         if (distance <= R * 1.9 && distance < closest) {
@@ -1005,6 +1171,11 @@
         snapProjectile(hitBubble);
       }
     }
+
+    /*
+     * গুরুত্বপূর্ণ:
+     * Pause থাকলেও কনফেটি ও Celebration চলবে।
+     */
 
     for (const p of particles) {
       p.x += p.vx * dt;
@@ -1020,16 +1191,21 @@
       c.y += c.vy * dt;
       c.rotation += c.spin * dt;
       c.life -= dt;
+
+      if (c.x < -20) c.x = W + 20;
+      if (c.x > W + 20) c.x = -20;
     }
 
     confetti = confetti.filter(c => c.life > 0);
+
     celebrationTime = Math.max(0, celebrationTime - dt);
   }
 
-  /* DRAWING */
+  /* ================= DRAWING ================= */
 
   function drawBackground() {
     const g = ctx.createLinearGradient(0, 0, 0, H);
+
     g.addColorStop(0, "#243e78");
     g.addColorStop(0.48, "#172750");
     g.addColorStop(1, "#10142e");
@@ -1042,13 +1218,13 @@
       W / 2, 170, 360
     );
 
-    glow.addColorStop(0, "#638aff20");
+    glow.addColorStop(0, "#638aff30");
     glow.addColorStop(1, "#638aff00");
 
     ctx.fillStyle = glow;
     ctx.fillRect(0, 0, W, H);
 
-    ctx.strokeStyle = "#ffffff0b";
+    ctx.strokeStyle = "#ffffff0c";
     ctx.lineWidth = 1;
 
     for (let y = 30; y < H; y += 45) {
@@ -1059,26 +1235,26 @@
     }
   }
 
-  /* আরও চকচকে 3D বল */
+  /* গর্জিয়াস 3D কাঁচের মতো বল */
 
   function drawBubble(x, y, color, radius = R) {
     ctx.save();
 
-    /* বাইরের নরম ছায়া */
     ctx.shadowColor = color;
-    ctx.shadowBlur = 13;
+    ctx.shadowBlur = 17;
 
     const g = ctx.createRadialGradient(
       x - radius * 0.38,
       y - radius * 0.43,
-      radius * 0.03,
+      radius * 0.02,
       x + radius * 0.12,
       y + radius * 0.15,
       radius * 1.15
     );
 
     g.addColorStop(0, "#ffffff");
-    g.addColorStop(0.12, color);
+    g.addColorStop(0.10, "#ffffff");
+    g.addColorStop(0.22, color);
     g.addColorStop(0.58, color);
     g.addColorStop(0.82, shadeColor(color, -35));
     g.addColorStop(1, "#090d22");
@@ -1090,23 +1266,22 @@
 
     ctx.shadowBlur = 0;
 
-    /* বাইরের কাঁচের রিং */
-    ctx.lineWidth = Math.max(1, radius * 0.075);
-    ctx.strokeStyle = "#ffffff65";
+    ctx.lineWidth = Math.max(1, radius * 0.09);
+    ctx.strokeStyle = "#ffffff95";
     ctx.stroke();
 
-    /* উপরের বড় আলো */
+    /* বড় কাঁচের আলো */
     const shine = ctx.createRadialGradient(
       x - radius * 0.38,
       y - radius * 0.48,
       0,
       x - radius * 0.25,
       y - radius * 0.35,
-      radius * 0.7
+      radius * 0.72
     );
 
-    shine.addColorStop(0, "#ffffffed");
-    shine.addColorStop(0.25, "#ffffff8c");
+    shine.addColorStop(0, "#ffffff");
+    shine.addColorStop(0.25, "#ffffffb5");
     shine.addColorStop(1, "#ffffff00");
 
     ctx.beginPath();
@@ -1128,12 +1303,12 @@
     ctx.arc(
       x + radius * 0.43,
       y + radius * 0.38,
-      radius * 0.11,
+      radius * 0.12,
       0,
       Math.PI * 2
     );
 
-    ctx.fillStyle = "#ffffff80";
+    ctx.fillStyle = "#ffffffb0";
     ctx.fill();
 
     ctx.restore();
@@ -1169,7 +1344,8 @@
     let dy = Math.sin(aimAngle);
 
     ctx.save();
-    ctx.strokeStyle = "#ffffffdd";
+
+    ctx.strokeStyle = "#ffffffed";
     ctx.lineWidth = 2.5;
     ctx.setLineDash([6, 7]);
 
@@ -1196,7 +1372,11 @@
       if (
         y < R ||
         bubbles.some(b =>
-          distanceToSegment(b.x, b.y, oldX, oldY, x, y) < R * 1.7
+          distanceToSegment(
+            b.x, b.y,
+            oldX, oldY,
+            x, y
+          ) < R * 1.7
         )
       ) {
         break;
@@ -1205,6 +1385,7 @@
 
     ctx.stroke();
     ctx.setLineDash([]);
+
     ctx.restore();
   }
 
@@ -1218,13 +1399,21 @@
     ctx.rotate(aimAngle + Math.PI / 2);
 
     const barrel = ctx.createLinearGradient(-9, 0, 9, 0);
+
     barrel.addColorStop(0, "#8295d8");
     barrel.addColorStop(0.5, "#ffffff");
     barrel.addColorStop(1, "#5669ad");
 
     ctx.fillStyle = barrel;
+
     ctx.beginPath();
-    ctx.roundRect(-8, -44, 16, 48, 6);
+
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(-8, -44, 16, 48, 6);
+    } else {
+      ctx.rect(-8, -44, 16, 48);
+    }
+
     ctx.fill();
 
     ctx.strokeStyle = "#ffffff90";
@@ -1245,17 +1434,51 @@
   function drawConfetti() {
     for (const c of confetti) {
       ctx.save();
+
       ctx.translate(c.x, c.y);
       ctx.rotate(c.rotation);
-      ctx.globalAlpha = clamp(c.life, 0, 1);
 
+      ctx.globalAlpha = clamp(c.life, 0, 1);
       ctx.fillStyle = c.color;
-      ctx.fillRect(-c.size / 2, -c.size / 2, c.size, c.size * 1.5);
+
+      ctx.shadowColor = c.color;
+      ctx.shadowBlur = 8;
+
+      ctx.fillRect(
+        -c.size / 2,
+        -c.size / 2,
+        c.size,
+        c.size * 1.5
+      );
 
       ctx.restore();
     }
 
     ctx.globalAlpha = 1;
+  }
+
+  function drawCelebrationGlow() {
+    if (celebrationTime <= 0) return;
+
+    const pulse = 0.5 + Math.sin(performance.now() / 110) * 0.5;
+
+    ctx.save();
+
+    ctx.globalAlpha = 0.10 + pulse * 0.12;
+
+    const glow = ctx.createRadialGradient(
+      W / 2, H / 2, 20,
+      W / 2, H / 2, 340
+    );
+
+    glow.addColorStop(0, "#fff6a0");
+    glow.addColorStop(0.5, "#ff55d8");
+    glow.addColorStop(1, "#4c7bff00");
+
+    ctx.fillStyle = glow;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.restore();
   }
 
   function draw() {
@@ -1270,18 +1493,19 @@
     }
 
     for (const p of particles) {
-      ctx.globalAlpha = Math.max(0, p.life / 0.55);
+      ctx.globalAlpha = Math.max(0, p.life / 0.65);
       drawBubble(p.x, p.y, p.color, 4);
     }
 
     ctx.globalAlpha = 1;
 
+    drawCelebrationGlow();
     drawConfetti();
     drawAim();
     drawShooter();
   }
 
-  /* GAME LOOP */
+  /* ================= GAME LOOP ================= */
 
   function loop(time) {
     if (!active) return;
@@ -1289,13 +1513,18 @@
     const dt = Math.min((time - lastTime) / 1000, 0.035);
     lastTime = time;
 
-    if (!paused && !gameOver) update(dt);
-
+    /*
+     * Pause থাকলেও update চলবে।
+     * update-এর ভেতরে শুধু projectile থামানো হয়েছে।
+     * তাই Celebration ও confetti চলতে থাকবে।
+     */
+    update(dt);
     draw();
+
     raf = requestAnimationFrame(loop);
   }
 
-  /* CLOSE / DESTROY */
+  /* ================= CLOSE / DESTROY ================= */
 
   function closeGame() {
     saveGame();
@@ -1308,7 +1537,10 @@
     }
 
     const modal = document.getElementById("gameModal");
-    if (modal) modal.remove();
+
+    if (modal) {
+      modal.remove();
+    }
   }
 
   function destroy() {
@@ -1327,12 +1559,15 @@
       canvas.removeEventListener("pointercancel", pointerUp);
     }
 
-    if (container) container.remove();
+    if (container) {
+      container.remove();
+    }
 
     if (audio) {
       try {
         audio.close();
       } catch (_) {}
+
       audio = null;
     }
 
@@ -1342,14 +1577,17 @@
     box = null;
   }
 
-  /* MOUNT */
+  /* ================= MOUNT ================= */
 
   function mount(mountPoint) {
     if (!mountPoint) return;
 
-    if (container) destroy();
+    if (container) {
+      destroy();
+    }
 
     box = mountPoint;
+
     createContainer(box);
 
     get("bsp-close").onclick = closeGame;
@@ -1360,6 +1598,7 @@
     get("bsp-primary").onclick = () => {
       paused = false;
       hideOverlay();
+      saveGame();
     };
 
     get("bsp-secondary").onclick = settings;
@@ -1369,23 +1608,23 @@
     canvas.addEventListener("pointerup", pointerUp);
     canvas.addEventListener("pointercancel", pointerUp);
 
-    /* নতুন গেম নয়, আগের সেভ করা গেম খোলার চেষ্টা */
     const restored = loadGame();
 
     if (restored) {
       active = true;
       paused = false;
       aiming = false;
+
       particles = [];
       confetti = [];
 
       updateUI();
 
       if (gameOver) {
-        active = false;
+        paused = true;
 
         showOverlay(
-          "GAME OVER",
+          level > 20 ? "🏆 YOU WIN!" : "GAME OVER",
           "আপনার আগের স্কোর: " + score,
           "আবার খেলুন",
           "বন্ধ করুন"
@@ -1393,13 +1632,37 @@
 
         get("bsp-primary").onclick = () => start(true);
         get("bsp-secondary").onclick = closeGame;
+
+      } else if (levelCompletePending) {
+        paused = true;
+        celebrate();
+
+        showOverlay(
+          "🎉 LEVEL COMPLETE!",
+          "লেভেল " + (level - 1) +
+          " শেষ! এবার লেভেল " + level + " শুরু করুন।",
+          "পরের লেভেল",
+          "বন্ধ করুন"
+        );
+
+        get("bsp-primary").onclick = () => {
+          paused = false;
+          levelCompletePending = false;
+          hideOverlay();
+          saveGame();
+        };
+
+        get("bsp-secondary").onclick = closeGame;
+
       } else {
         hideOverlay();
       }
 
       lastTime = performance.now();
+
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(loop);
+
     } else {
       start(true);
     }
