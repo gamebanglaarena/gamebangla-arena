@@ -45,12 +45,8 @@ else if (name === "Tic Tac Toe") startTicTacToe(box);
 else if (name === "Bubble Shooter Pop") startBubbleShooter(box);
 
 else {
-  
-    box.innerHTML = `
-      <h3>গেম পাওয়া যায়নি</h3>
-      <button onclick="closeGame()">বন্ধ করুন</button>
-    `;
-  }
+  box.textContent = "গেম পাওয়া যায়নি: " + name;
+}
 }
 
 function closeGame() {
