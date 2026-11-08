@@ -1,4 +1,5 @@
-/* BUBBLE SHOOTER POP — Enhanced Edition */
+
+/* BUBBLE SHOOTER POP — WIDE BOARD 3D EDITION */
 (() => {
   "use strict";
 
@@ -7,20 +8,27 @@
   const GAME_ID = "bubble-shooter-pop";
   const SAVE_KEY = "gamebangla_bubble_shooter_save_v2";
 
-  const W = 420, H = 720, R = 16;
-  const COLS = 10, STEP_X = 34, STEP_Y = 29.5, START_X = 38;
+  // বোর্ডের উচ্চতা 720 থাকবে, প্রস্থ বাড়ানো হয়েছে
+  const W = 500, H = 720, R = 16;
+  const COLS = 10, STEP_X = 34, STEP_Y = 29.5;
+  const START_X = 80;
+
   const COLORS = [
-    "#ff3b6b", "#36c9ff", "#ffd43b",
-    "#9b65ff", "#48e28a", "#ff963c"
+    "#ff1768", "#00d9ff", "#ffe000",
+    "#a855ff", "#00f58a", "#ff7a18"
   ];
 
   let box = null, container = null, canvas = null, ctx = null;
-  let bubbles = [], particles = [], confetti = [], projectile = null;
+  let bubbles = [], particles = [], confetti = [];
+  let projectile = null;
 
   let level = 1, score = 0, shots = 0;
-  let active = false, paused = false, gameOver = false, aiming = false;
+  let active = false, paused = false;
+  let gameOver = false, aiming = false;
+
   let aimAngle = -Math.PI / 2;
-  let currentColor = COLORS[0], nextColor = COLORS[1];
+  let currentColor = COLORS[0];
+  let nextColor = COLORS[1];
 
   let raf = 0, lastTime = 0, audio = null;
   let soundEnabled = true, volume = 0.45;
@@ -28,15 +36,21 @@
 
   const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
   const rand = a => a[Math.floor(Math.random() * a.length)];
+
   const shooterX = () => W / 2;
   const shooterY = () => H - 66;
+
+  /* AUDIO */
 
   function ensureAudio() {
     try {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return null;
+
       if (!audio) audio = new AC();
+
       if (audio.state === "suspended") audio.resume();
+
       return audio;
     } catch (_) {
       return null;
@@ -45,6 +59,7 @@
 
   function tone(freq, duration = 0.12, type = "sine", gainValue = 0.12) {
     if (!soundEnabled) return;
+
     const ac = ensureAudio();
     if (!ac) return;
 
@@ -55,34 +70,93 @@
 
       osc.type = type;
       osc.frequency.setValueAtTime(freq, now);
+
       gain.gain.setValueAtTime(
         Math.max(0.001, gainValue * volume), now
       );
-      gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+
+      gain.gain.exponentialRampToValueAtTime(
+        0.001, now + duration
+      );
 
       osc.connect(gain);
       gain.connect(ac.destination);
+
       osc.start(now);
       osc.stop(now + duration);
     } catch (_) {}
   }
 
+  // পাখির কিচিরমিচিরের মতো শুটিং সাউন্ড
+  function playShoot() {
+    if (!soundEnabled) return;
+
+    const ac = ensureAudio();
+    if (!ac) return;
+
+    try {
+      const now = ac.currentTime;
+
+      const notes = [
+        { start: 0, duration: 0.10, from: 1050, to: 1550 },
+        { start: 0.09, duration: 0.11, from: 1450, to: 1950 },
+        { start: 0.19, duration: 0.10, from: 1150, to: 1700 }
+      ];
+
+      notes.forEach(note => {
+        const osc = ac.createOscillator();
+        const gain = ac.createGain();
+
+        osc.type = "sine";
+
+        osc.frequency.setValueAtTime(
+          note.from, now + note.start
+        );
+
+        osc.frequency.exponentialRampToValueAtTime(
+          note.to, now + note.start + note.duration * 0.55
+        );
+
+        osc.frequency.exponentialRampToValueAtTime(
+          note.from * 0.78,
+          now + note.start + note.duration
+        );
+
+        gain.gain.setValueAtTime(
+          Math.max(0.001, volume * 0.10),
+          now + note.start
+        );
+
+        gain.gain.exponentialRampToValueAtTime(
+          0.001,
+          now + note.start + note.duration
+        );
+
+        osc.connect(gain);
+        gain.connect(ac.destination);
+
+        osc.start(now + note.start);
+        osc.stop(now + note.start + note.duration);
+      });
+    } catch (_) {}
+  }
+
   function playPop() {
     tone(620, 0.09, "sine", 0.16);
-    setTimeout(() => tone(880, 0.11, "triangle", 0.12), 55);
+    tone(880, 0.11, "triangle", 0.12);
   }
 
   function playLevelUp() {
     tone(523, 0.16, "triangle", 0.15);
     setTimeout(() => tone(659, 0.16, "triangle", 0.15), 130);
-    setTimeout(() => tone(784, 0.2, "triangle", 0.16), 260);
-    setTimeout(() => tone(1046, 0.3, "sine", 0.16), 390);
+    setTimeout(() => tone(784, 0.20, "triangle", 0.16), 260);
+    setTimeout(() => tone(1046, 0.30, "sine", 0.16), 390);
   }
 
   function playGameOver() {
-    tone(330, 0.2, "triangle", 0.14);
+    tone(330, 0.20, "triangle", 0.14);
     setTimeout(() => tone(240, 0.25, "triangle", 0.14), 180);
-    setTimeout(() => tone(150, 0.4, "sawtooth", 0.12), 380);
+    setTimeout(() => tone(150, 0.40, "sawtooth", 0.12), 380);
   }
 
   /* SAVE / RESTORE */
@@ -91,7 +165,10 @@
     try {
       const data = {
         version: 2,
-        level, score, shots,
+        level,
+        score,
+        shots,
+
         bubbles: bubbles.map(b => ({
           row: b.row,
           col: b.col,
@@ -99,6 +176,7 @@
           y: b.y,
           color: b.color
         })),
+
         projectile: projectile ? { ...projectile } : null,
         currentColor,
         nextColor,
@@ -186,7 +264,7 @@
 
     container.style.cssText = [
       "width:100%",
-      "max-width:500px",
+      "max-width:560px",
       "height:min(96dvh,900px)",
       "min-height:0",
       "margin:auto",
@@ -204,7 +282,9 @@
 
     container.innerHTML = `
       <style>
-        #${GAME_ID},#${GAME_ID} *{box-sizing:border-box}
+        #${GAME_ID},#${GAME_ID} *{
+          box-sizing:border-box;
+        }
 
         #${GAME_ID}{
           background:
@@ -231,7 +311,8 @@
         }
 
         #${GAME_ID} .bsp-close{
-          width:38px;height:36px;
+          width:38px;
+          height:36px;
           padding:0!important;
           border-radius:12px!important;
           background:linear-gradient(145deg,#ff6683,#d51e53)!important;
@@ -268,6 +349,7 @@
         #${GAME_ID} .bsp-board{
           flex:1 1 auto;
           min-height:0;
+          width:100%;
           display:flex;
           align-items:center;
           justify-content:center;
@@ -281,7 +363,7 @@
           width:auto;
           height:100%;
           max-width:100%;
-          aspect-ratio:420/720;
+          aspect-ratio:500/720;
           touch-action:none;
         }
 
@@ -309,7 +391,9 @@
           transition:transform .12s;
         }
 
-        #${GAME_ID} button:active{transform:scale(.95)}
+        #${GAME_ID} button:active{
+          transform:scale(.95);
+        }
 
         #${GAME_ID} .bsp-overlay{
           position:absolute;
@@ -318,8 +402,8 @@
           align-items:center;
           justify-content:center;
           padding:18px;
-          background:#080d20df;
-          backdrop-filter:blur(7px);
+          background:#080d2080;
+          backdrop-filter:blur(5px);
           z-index:5;
         }
 
@@ -339,9 +423,18 @@
           text-shadow:0 2px 10px #ffcf5c55;
         }
 
-        #${GAME_ID} .bsp-panel p{line-height:1.55;color:#f0f2ff}
-        #${GAME_ID} .bsp-panel button{margin:5px}
-        #${GAME_ID} .bsp-hidden{display:none!important}
+        #${GAME_ID} .bsp-panel p{
+          line-height:1.55;
+          color:#f0f2ff;
+        }
+
+        #${GAME_ID} .bsp-panel button{
+          margin:5px;
+        }
+
+        #${GAME_ID} .bsp-hidden{
+          display:none!important;
+        }
 
         #${GAME_ID} .bsp-setting-row{
           display:flex;
@@ -352,15 +445,55 @@
           color:white;
         }
 
-        #${GAME_ID} input[type=range]{width:130px;accent-color:#ffdc70}
-        #${GAME_ID} input[type=checkbox]{width:20px;height:20px;accent-color:#8d74ff}
+        #${GAME_ID} input[type=range]{
+          width:130px;
+          accent-color:#ffdc70;
+        }
+
+        #${GAME_ID} input[type=checkbox]{
+          width:20px;
+          height:20px;
+          accent-color:#8d74ff;
+        }
+
+        @media(max-width:380px){
+          #${GAME_ID} .bsp-brand{
+            font-size:12px;
+          }
+
+          #${GAME_ID} .bsp-controls{
+            gap:4px;
+            padding-left:3px;
+            padding-right:3px;
+          }
+
+          #${GAME_ID} button{
+            padding:9px 7px;
+            font-size:11px;
+          }
+        }
 
         @media(max-height:620px){
-          #${GAME_ID}{height:96dvh!important}
-          #${GAME_ID} .bsp-top{padding:5px 9px}
-          #${GAME_ID} .bsp-stats{padding:4px}
-          #${GAME_ID} .bsp-controls{padding:5px}
-          #${GAME_ID} button{padding:8px 9px;font-size:12px}
+          #${GAME_ID}{
+            height:96dvh!important;
+          }
+
+          #${GAME_ID} .bsp-top{
+            padding:5px 9px;
+          }
+
+          #${GAME_ID} .bsp-stats{
+            padding:4px;
+          }
+
+          #${GAME_ID} .bsp-controls{
+            padding:5px;
+          }
+
+          #${GAME_ID} button{
+            padding:8px 9px;
+            font-size:12px;
+          }
         }
       </style>
 
@@ -382,7 +515,7 @@
       </div>
 
       <div class="bsp-board">
-        <canvas id="bsp-canvas" width="420" height="720"></canvas>
+        <canvas id="bsp-canvas" width="500" height="720"></canvas>
       </div>
 
       <div class="bsp-controls">
@@ -448,7 +581,11 @@
   function chooseBoardColor(exclude) {
     const available = activeColors();
     const choices = available.filter(c => c !== exclude);
-    return rand(choices.length ? choices : (available.length ? available : COLORS));
+
+    return rand(
+      choices.length ? choices :
+      (available.length ? available : COLORS)
+    );
   }
 
   function refreshShooterColors() {
@@ -460,7 +597,9 @@
       return;
     }
 
-    if (!available.includes(currentColor)) currentColor = rand(available);
+    if (!available.includes(currentColor)) {
+      currentColor = rand(available);
+    }
 
     if (!available.includes(nextColor) || nextColor === currentColor) {
       nextColor = chooseBoardColor(currentColor);
@@ -482,14 +621,20 @@
     for (let row = 0; row < rows; row++) {
       for (let col = 0; col < COLS; col++) {
         if (Math.random() < density) {
-          bubbles.push({ ...position(row, col), color: rand(palette) });
+          bubbles.push({
+            ...position(row, col),
+            color: rand(palette)
+          });
         }
       }
     }
 
     if (bubbles.length < 3) {
       for (let col = 0; col < 3; col++) {
-        bubbles.push({ ...position(0, col), color: palette[0] });
+        bubbles.push({
+          ...position(0, col),
+          color: palette[0]
+        });
       }
     }
 
@@ -500,11 +645,13 @@
   function start(resetAll = true) {
     if (resetAll) {
       clearSavedGame();
+
       level = 1;
       score = 0;
       shots = 0;
       projectile = null;
       gameOver = false;
+
       createBoard();
     }
 
@@ -512,6 +659,7 @@
     paused = false;
     active = true;
     aiming = false;
+
     particles = [];
     confetti = [];
 
@@ -519,8 +667,10 @@
     hideOverlay();
 
     cancelAnimationFrame(raf);
+
     lastTime = performance.now();
     saveGame();
+
     raf = requestAnimationFrame(loop);
   }
 
@@ -529,6 +679,7 @@
 
     currentColor = chooseBoardColor(currentColor);
     tone(680, 0.1, "triangle");
+
     saveGame();
   }
 
@@ -540,13 +691,19 @@
     paused = true;
     saveGame();
 
-    showOverlay("⚙ SETTINGS", "সাউন্ড ও গেম সেটিংস", "খেলায় ফিরুন", "নতুন করে শুরু");
+    showOverlay(
+      "⚙ SETTINGS",
+      "সাউন্ড ও গেম সেটিংস",
+      "খেলায় ফিরুন",
+      "নতুন করে শুরু"
+    );
 
     get("bsp-extra").innerHTML = `
       <div class="bsp-setting-row">
         <label for="bsp-sound">Sound</label>
         <input id="bsp-sound" type="checkbox" ${soundEnabled ? "checked" : ""}>
       </div>
+
       <div class="bsp-setting-row">
         <label for="bsp-volume">Volume</label>
         <input id="bsp-volume" type="range" min="0" max="100" value="${Math.round(volume * 100)}">
@@ -555,7 +712,9 @@
 
     get("bsp-sound").onchange = e => {
       soundEnabled = e.target.checked;
+
       if (soundEnabled) tone(700);
+
       saveGame();
     };
 
@@ -580,7 +739,13 @@
 
     if (paused) {
       saveGame();
-      showOverlay("PAUSED", "খেলা সাময়িক বন্ধ আছে", "আবার খেলুন", "Settings");
+
+      showOverlay(
+        "PAUSED",
+        "খেলা সাময়িক বন্ধ আছে",
+        "আবার খেলুন",
+        "Settings"
+      );
 
       get("bsp-primary").onclick = () => {
         paused = false;
@@ -599,6 +764,7 @@
 
   function pointerPosition(e) {
     const rect = canvas.getBoundingClientRect();
+
     return {
       x: (e.clientX - rect.left) / rect.width * W,
       y: (e.clientY - rect.top) / rect.height * H
@@ -607,13 +773,18 @@
 
   function calculateAngle(p) {
     return clamp(
-      Math.atan2(p.y - shooterY(), p.x - shooterX()),
+      Math.atan2(
+        p.y - shooterY(),
+        p.x - shooterX()
+      ),
       -Math.PI + 0.2,
       -0.2
     );
   }
 
   function pointerDown(e) {
+    e.preventDefault();
+
     ensureAudio();
 
     if (!active || paused || gameOver || projectile) return;
@@ -627,7 +798,9 @@
   }
 
   function pointerMove(e) {
-    if (aiming) aimAngle = calculateAngle(pointerPosition(e));
+    if (aiming) {
+      aimAngle = calculateAngle(pointerPosition(e));
+    }
   }
 
   function pointerUp() {
@@ -635,7 +808,9 @@
 
     aiming = false;
 
-    if (active && !paused && !gameOver && !projectile) shoot();
+    if (active && !paused && !gameOver && !projectile) {
+      shoot();
+    }
   }
 
   function shoot() {
@@ -648,11 +823,13 @@
     };
 
     shots++;
+
     currentColor = nextColor;
     nextColor = chooseBoardColor(currentColor);
 
     updateUI();
-    tone(330, 0.08, "triangle", 0.08);
+
+    playShoot();
     saveGame();
   }
 
@@ -664,7 +841,8 @@
       const speed = 55 + Math.random() * 170;
 
       particles.push({
-        x, y,
+        x,
+        y,
         vx: Math.cos(a) * speed,
         vy: Math.sin(a) * speed,
         life: 0.55,
@@ -674,9 +852,9 @@
   }
 
   function celebrate() {
-    celebrationTime = 2.8;
+    celebrationTime = 4.5;
 
-    for (let i = 0; i < 115; i++) {
+    for (let i = 0; i < 170; i++) {
       confetti.push({
         x: Math.random() * W,
         y: -Math.random() * H * 0.65,
@@ -689,6 +867,12 @@
         life: 3 + Math.random() * 1.5
       });
     }
+  }
+
+  function playCelebration() {
+    playLevelUp();
+    setTimeout(() => tone(1200, 0.15, "sine", 0.12), 480);
+    setTimeout(() => tone(1500, 0.20, "triangle", 0.12), 700);
   }
 
   /* BUBBLE CONNECTIONS */
@@ -738,19 +922,26 @@
   }
 
   function dropFloatingBubbles() {
-    const byCell = new Map(bubbles.map(b => [`${b.row},${b.col}`, b]));
+    const byCell = new Map(
+      bubbles.map(b => [`${b.row},${b.col}`, b])
+    );
+
     const connected = new Set();
     const stack = bubbles.filter(b => b.row === 0);
 
     while (stack.length) {
       const b = stack.pop();
+
       if (connected.has(b)) continue;
 
       connected.add(b);
 
       for (const [r, c] of neighbors(b)) {
         const n = byCell.get(`${r},${c}`);
-        if (n && !connected.has(n)) stack.push(n);
+
+        if (n && !connected.has(n)) {
+          stack.push(n);
+        }
       }
     }
 
@@ -758,22 +949,21 @@
 
     if (dropped.length) {
       dropped.forEach(b => makeParticles(b.x, b.y, b.color));
+
       bubbles = bubbles.filter(b => connected.has(b));
+
       score += dropped.length * 10;
       playPop();
     }
   }
 
   function cellIsFree(row, col) {
-    return !bubbles.some(b => b.row === row && b.col === col);
+    return !bubbles.some(
+      b => b.row === row && b.col === col
+    );
   }
 
-  /*
-   * বল বসানোর নতুন নিরাপদ পদ্ধতি:
-   * ১. আগে আঘাত করা বলের পাশের খালি ঘর খোঁজে।
-   * ২. পাশের ঘর না পেলে কাছের অন্য খালি ঘর খোঁজে।
-   * ৩. কোনো অবস্থাতেই বল চুপচাপ মুছে ফেলে না।
-   */
+  /* SAFE BUBBLE PLACEMENT */
 
   function findOpenNeighbor(hitBubble) {
     let candidates = [];
@@ -786,8 +976,14 @@
 
     if (candidates.length) {
       return candidates.sort((a, b) =>
-        Math.hypot(a.x - projectile.x, a.y - projectile.y) -
-        Math.hypot(b.x - projectile.x, b.y - projectile.y)
+        Math.hypot(
+          a.x - projectile.x,
+          a.y - projectile.y
+        ) -
+        Math.hypot(
+          b.x - projectile.x,
+          b.y - projectile.y
+        )
       )[0];
     }
 
@@ -804,9 +1000,18 @@
 
         const p = position(row, col);
 
-        if (p.y > shooterY() - R) continue;
+        if (
+          p.y > shooterY() - R ||
+          p.x < R + 1 ||
+          p.x > W - R - 1
+        ) {
+          continue;
+        }
 
-        const distance = Math.hypot(p.x - x, p.y - y);
+        const distance = Math.hypot(
+          p.x - x,
+          p.y - y
+        );
 
         if (distance < bestDistance) {
           bestDistance = distance;
@@ -818,16 +1023,22 @@
     return best;
   }
 
+  /* LEVEL */
+
   function finishLevel() {
     level++;
     projectile = null;
+
     celebrate();
-    playLevelUp();
+    playCelebration();
+
     updateUI();
 
     if (level > 20) {
-      active = false;
+      active = true;
       gameOver = true;
+      paused = true;
+
       saveGame();
 
       showOverlay(
@@ -839,6 +1050,7 @@
 
       get("bsp-primary").onclick = () => start(true);
       get("bsp-secondary").onclick = closeGame;
+
       return;
     }
 
@@ -850,7 +1062,8 @@
 
     showOverlay(
       "🎉 LEVEL COMPLETE!",
-      "লেভেল " + (level - 1) + " শেষ! এবার লেভেল " + level + " শুরু করুন।",
+      "লেভেল " + (level - 1) +
+      " শেষ! এবার লেভেল " + level + " শুরু করুন।",
       "পরের লেভেল",
       "বন্ধ করুন"
     );
@@ -870,13 +1083,11 @@
     const spot = findOpenNeighbor(hitBubble);
 
     if (!spot) {
-      /*
-       * বোর্ডে আর কোনো জায়গা না থাকলে বল হারাবে না।
-       * গেম ওভার দেখিয়ে বলের অবস্থা সংরক্ষণ করবে।
-       */
       projectile = null;
-      active = false;
+      active = true;
+      paused = true;
       gameOver = true;
+
       saveGame();
 
       showOverlay(
@@ -888,7 +1099,9 @@
 
       get("bsp-primary").onclick = () => start(true);
       get("bsp-secondary").onclick = closeGame;
+
       playGameOver();
+
       return;
     }
 
@@ -903,12 +1116,18 @@
     const matches = findMatches(placed);
 
     if (matches.length >= 3) {
-      matches.forEach(b => makeParticles(b.x, b.y, b.color));
+      matches.forEach(b =>
+        makeParticles(b.x, b.y, b.color)
+      );
 
       const matched = new Set(matches);
-      bubbles = bubbles.filter(b => !matched.has(b));
+
+      bubbles = bubbles.filter(
+        b => !matched.has(b)
+      );
 
       score += matches.length * 15;
+
       playPop();
       dropFloatingBubbles();
     }
@@ -923,8 +1142,10 @@
     refreshShooterColors();
 
     if (bubbles.some(b => b.y >= shooterY() - 70)) {
-      active = false;
+      active = true;
+      paused = true;
       gameOver = true;
+
       celebrate();
       saveGame();
 
@@ -944,14 +1165,16 @@
     saveGame();
   }
 
-  /* PROJECTILE COLLISION */
+  /* COLLISION */
 
   function distanceToSegment(px, py, x1, y1, x2, y2) {
     const dx = x2 - x1;
     const dy = y2 - y1;
     const length2 = dx * dx + dy * dy;
 
-    if (!length2) return Math.hypot(px - x1, py - y1);
+    if (!length2) {
+      return Math.hypot(px - x1, py - y1);
+    }
 
     const t = clamp(
       ((px - x1) * dx + (py - y1) * dy) / length2,
@@ -965,47 +1188,89 @@
     return Math.hypot(px - cx, py - cy);
   }
 
-  function update(dt) {
-    if (projectile) {
+  /*
+   * ছোট ছোট ধাপে বল চালানো হচ্ছে।
+   * এতে ডান বা বাম দেয়ালে প্রতিফলনের পর
+   * সংঘর্ষ শনাক্তকরণ বাদ পড়ে যাওয়ার ঝুঁকি কমে।
+   */
+
+  function moveProjectile(dt) {
+    if (!projectile) return;
+
+    const distance = Math.hypot(
+      projectile.vx * dt,
+      projectile.vy * dt
+    );
+
+    const steps = Math.max(1, Math.ceil(distance / 3));
+    const stepTime = dt / steps;
+
+    for (let i = 0; i < steps; i++) {
+      if (!projectile) return;
+
       const oldX = projectile.x;
       const oldY = projectile.y;
 
-      projectile.x += projectile.vx * dt;
-      projectile.y += projectile.vy * dt;
+      projectile.x += projectile.vx * stepTime;
+      projectile.y += projectile.vy * stepTime;
 
-      /* দেয়ালে লাগলে প্রতিফলন */
+      // বাম দেয়াল
       if (projectile.x < R) {
         projectile.x = R + (R - projectile.x);
         projectile.vx = Math.abs(projectile.vx);
-      } else if (projectile.x > W - R) {
-        projectile.x = (W - R) - (projectile.x - (W - R));
+      }
+
+      // ডান দেয়াল
+      if (projectile.x > W - R) {
+        projectile.x =
+          (W - R) - (projectile.x - (W - R));
+
         projectile.vx = -Math.abs(projectile.vx);
       }
 
-      projectile.x = clamp(projectile.x, R, W - R);
+      projectile.x = clamp(
+        projectile.x,
+        R,
+        W - R
+      );
 
-      /* দ্রুত চললেও বল যেন অন্য বলের ভেতর দিয়ে চলে না যায় */
       let hitBubble = null;
       let closest = Infinity;
 
       for (const b of bubbles) {
-        const distance = distanceToSegment(
-          b.x, b.y,
-          oldX, oldY,
-          projectile.x, projectile.y
+        const distanceToBubble = distanceToSegment(
+          b.x,
+          b.y,
+          oldX,
+          oldY,
+          projectile.x,
+          projectile.y
         );
 
-        if (distance <= R * 1.9 && distance < closest) {
-          closest = distance;
+        if (
+          distanceToBubble <= R * 1.92 &&
+          distanceToBubble < closest
+        ) {
+          closest = distanceToBubble;
           hitBubble = b;
         }
       }
 
       if (projectile.y <= R || hitBubble) {
         snapProjectile(hitBubble);
+        return;
       }
     }
+  }
 
+  /* UPDATE */
+
+  function update(dt) {
+    if (!paused && !gameOver && projectile) {
+      moveProjectile(dt);
+    }
+
+    // বিরতি থাকলেও particles ও confetti চলবে
     for (const p of particles) {
       p.x += p.vx * dt;
       p.y += p.vy * dt;
@@ -1023,13 +1288,18 @@
     }
 
     confetti = confetti.filter(c => c.life > 0);
-    celebrationTime = Math.max(0, celebrationTime - dt);
+
+    celebrationTime = Math.max(
+      0,
+      celebrationTime - dt
+    );
   }
 
   /* DRAWING */
 
   function drawBackground() {
     const g = ctx.createLinearGradient(0, 0, 0, H);
+
     g.addColorStop(0, "#243e78");
     g.addColorStop(0.48, "#172750");
     g.addColorStop(1, "#10142e");
@@ -1039,7 +1309,7 @@
 
     const glow = ctx.createRadialGradient(
       W / 2, 170, 20,
-      W / 2, 170, 360
+      W / 2, 170, 390
     );
 
     glow.addColorStop(0, "#638aff20");
@@ -1059,29 +1329,29 @@
     }
   }
 
-  /* আরও চকচকে 3D বল */
+  /* 3D GLASS BUBBLES */
 
   function drawBubble(x, y, color, radius = R) {
     ctx.save();
 
-    /* বাইরের নরম ছায়া */
+    // বাইরের নরম আলো
     ctx.shadowColor = color;
-    ctx.shadowBlur = 13;
+    ctx.shadowBlur = 15;
 
     const g = ctx.createRadialGradient(
       x - radius * 0.38,
       y - radius * 0.43,
-      radius * 0.03,
+      radius * 0.02,
       x + radius * 0.12,
       y + radius * 0.15,
-      radius * 1.15
+      radius * 1.12
     );
 
     g.addColorStop(0, "#ffffff");
     g.addColorStop(0.12, color);
-    g.addColorStop(0.58, color);
-    g.addColorStop(0.82, shadeColor(color, -35));
-    g.addColorStop(1, "#090d22");
+    g.addColorStop(0.55, color);
+    g.addColorStop(0.82, shadeColor(color, -45));
+    g.addColorStop(1, "#080b20");
 
     ctx.beginPath();
     ctx.arc(x, y, radius, 0, Math.PI * 2);
@@ -1090,26 +1360,27 @@
 
     ctx.shadowBlur = 0;
 
-    /* বাইরের কাঁচের রিং */
-    ctx.lineWidth = Math.max(1, radius * 0.075);
-    ctx.strokeStyle = "#ffffff65";
+    // কাঁচের বাইরের রিং
+    ctx.lineWidth = Math.max(1, radius * 0.08);
+    ctx.strokeStyle = "#ffffff85";
     ctx.stroke();
 
-    /* উপরের বড় আলো */
+    // উপরের বড় আলো
     const shine = ctx.createRadialGradient(
       x - radius * 0.38,
       y - radius * 0.48,
       0,
       x - radius * 0.25,
       y - radius * 0.35,
-      radius * 0.7
+      radius * 0.72
     );
 
-    shine.addColorStop(0, "#ffffffed");
-    shine.addColorStop(0.25, "#ffffff8c");
+    shine.addColorStop(0, "#ffffff");
+    shine.addColorStop(0.25, "#ffffffaa");
     shine.addColorStop(1, "#ffffff00");
 
     ctx.beginPath();
+
     ctx.ellipse(
       x - radius * 0.28,
       y - radius * 0.36,
@@ -1123,8 +1394,9 @@
     ctx.fillStyle = shine;
     ctx.fill();
 
-    /* ছোট প্রতিফলিত আলো */
+    // ছোট আলো
     ctx.beginPath();
+
     ctx.arc(
       x + radius * 0.43,
       y + radius * 0.38,
@@ -1133,7 +1405,7 @@
       Math.PI * 2
     );
 
-    ctx.fillStyle = "#ffffff80";
+    ctx.fillStyle = "#ffffffaa";
     ctx.fill();
 
     ctx.restore();
@@ -1159,6 +1431,8 @@
     ).toString(16).slice(1);
   }
 
+  /* AIM LINE */
+
   function drawAim() {
     if (!aiming) return;
 
@@ -1169,19 +1443,20 @@
     let dy = Math.sin(aimAngle);
 
     ctx.save();
-    ctx.strokeStyle = "#ffffffdd";
+
+    ctx.strokeStyle = "#ffffffed";
     ctx.lineWidth = 2.5;
     ctx.setLineDash([6, 7]);
 
     ctx.beginPath();
     ctx.moveTo(x, y);
 
-    for (let i = 0; i < 170; i++) {
+    for (let i = 0; i < 220; i++) {
       const oldX = x;
       const oldY = y;
 
-      x += dx * 4;
-      y += dy * 4;
+      x += dx * 3;
+      y += dy * 3;
 
       if (x < R) {
         x = R + (R - x);
@@ -1196,7 +1471,11 @@
       if (
         y < R ||
         bubbles.some(b =>
-          distanceToSegment(b.x, b.y, oldX, oldY, x, y) < R * 1.7
+          distanceToSegment(
+            b.x, b.y,
+            oldX, oldY,
+            x, y
+          ) < R * 1.7
         )
       ) {
         break;
@@ -1205,8 +1484,11 @@
 
     ctx.stroke();
     ctx.setLineDash([]);
+
     ctx.restore();
   }
+
+  /* SHOOTER */
 
   function drawShooter() {
     const x = shooterX();
@@ -1218,13 +1500,21 @@
     ctx.rotate(aimAngle + Math.PI / 2);
 
     const barrel = ctx.createLinearGradient(-9, 0, 9, 0);
+
     barrel.addColorStop(0, "#8295d8");
     barrel.addColorStop(0.5, "#ffffff");
     barrel.addColorStop(1, "#5669ad");
 
     ctx.fillStyle = barrel;
+
     ctx.beginPath();
-    ctx.roundRect(-8, -44, 16, 48, 6);
+
+    if (typeof ctx.roundRect === "function") {
+      ctx.roundRect(-8, -44, 16, 48, 6);
+    } else {
+      ctx.rect(-8, -44, 16, 48);
+    }
+
     ctx.fill();
 
     ctx.strokeStyle = "#ffffff90";
@@ -1242,21 +1532,32 @@
     drawBubble(x + 75, y, nextColor, 11);
   }
 
+  /* CONFETTI */
+
   function drawConfetti() {
     for (const c of confetti) {
       ctx.save();
+
       ctx.translate(c.x, c.y);
       ctx.rotate(c.rotation);
       ctx.globalAlpha = clamp(c.life, 0, 1);
 
       ctx.fillStyle = c.color;
-      ctx.fillRect(-c.size / 2, -c.size / 2, c.size, c.size * 1.5);
+
+      ctx.fillRect(
+        -c.size / 2,
+        -c.size / 2,
+        c.size,
+        c.size * 1.5
+      );
 
       ctx.restore();
     }
 
     ctx.globalAlpha = 1;
   }
+
+  /* MAIN DRAW */
 
   function draw() {
     drawBackground();
@@ -1266,7 +1567,11 @@
     }
 
     if (projectile) {
-      drawBubble(projectile.x, projectile.y, projectile.color);
+      drawBubble(
+        projectile.x,
+        projectile.y,
+        projectile.color
+      );
     }
 
     for (const p of particles) {
@@ -1286,12 +1591,16 @@
   function loop(time) {
     if (!active) return;
 
-    const dt = Math.min((time - lastTime) / 1000, 0.035);
+    const dt = Math.min(
+      (time - lastTime) / 1000,
+      0.035
+    );
+
     lastTime = time;
 
-    if (!paused && !gameOver) update(dt);
-
+    update(dt);
     draw();
+
     raf = requestAnimationFrame(loop);
   }
 
@@ -1308,6 +1617,7 @@
     }
 
     const modal = document.getElementById("gameModal");
+
     if (modal) modal.remove();
   }
 
@@ -1333,6 +1643,7 @@
       try {
         audio.close();
       } catch (_) {}
+
       audio = null;
     }
 
@@ -1350,6 +1661,7 @@
     if (container) destroy();
 
     box = mountPoint;
+
     createContainer(box);
 
     get("bsp-close").onclick = closeGame;
@@ -1369,20 +1681,21 @@
     canvas.addEventListener("pointerup", pointerUp);
     canvas.addEventListener("pointercancel", pointerUp);
 
-    /* নতুন গেম নয়, আগের সেভ করা গেম খোলার চেষ্টা */
     const restored = loadGame();
 
     if (restored) {
       active = true;
       paused = false;
       aiming = false;
+
       particles = [];
       confetti = [];
 
       updateUI();
 
       if (gameOver) {
-        active = false;
+        active = true;
+        paused = true;
 
         showOverlay(
           "GAME OVER",
@@ -1398,6 +1711,7 @@
       }
 
       lastTime = performance.now();
+
       cancelAnimationFrame(raf);
       raf = requestAnimationFrame(loop);
     } else {
