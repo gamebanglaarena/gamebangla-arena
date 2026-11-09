@@ -43,6 +43,7 @@ else if (name === "Math Rush") startMathRush(box);
 else if (name === "Target Tap") startTargetTap(box);
 else if (name === "Tic Tac Toe") startTicTacToe(box);
 else if (name === "Bubble Shooter Pop") startBubbleShooter(box);
+  else if (name === "Bubble Shooter Pop New") startNewBubbleShooter(box);
 else {
   box.textContent = "গেম পাওয়া যায়নি: " + name;
 }
