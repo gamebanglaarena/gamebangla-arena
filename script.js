@@ -644,7 +644,7 @@ function startNewBubbleShooter(box) {
     newBubbleShooterLoading = new Promise((resolve, reject) => {
       const script = document.createElement("script");
 
-      script.src = "games/bubble-shooter-new/bubble-shooter-new.js";
+      script.src = new URL("./games/bubble-shooter-new/bubble-shooter-new.js", document.baseURI).href;
 
       script.onload = resolve;
       script.onerror = reject;
