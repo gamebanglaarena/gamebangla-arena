@@ -5,7 +5,7 @@
 */
 (() => {
   "use strict";
-  if (window.BubbleShooterPop) return;
+  if (window.BubbleShooterPopNew) return;
 
   const STYLE_ID = "gb-bubble-shooter-style";
   const COLORS = [
@@ -1310,10 +1310,10 @@
 
     return api;
   }
-
-  window.BubbleShooterPop = {
-    mount,
-    destroy: () => activeGame && activeGame.destroy()
-  };
+window.BubbleShooterPopNew = {
+  mount,
+  destroy: () => activeGame && activeGame.destroy()
+};
+  
 
 })();
