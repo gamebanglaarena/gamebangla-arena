@@ -626,3 +626,42 @@ function startBubbleShooter(box) {
     box.textContent = "গেম চালু করা যাচ্ছে না।";
   });
 }
+// ==============================
+// NEW BUBBLE SHOOTER CONNECTION
+// ==============================
+
+let newBubbleShooterLoading = null;
+
+function startNewBubbleShooter(box) {
+  if (!box) return;
+
+  if (window.BubbleShooterPopNew?.mount) {
+    window.BubbleShooterPopNew.mount(box);
+    return;
+  }
+
+  if (!newBubbleShooterLoading) {
+    newBubbleShooterLoading = new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+
+      script.src = "games/bubble-shooter-new/bubble-shooter-new.js";
+
+      script.onload = resolve;
+      script.onerror = reject;
+
+      document.head.appendChild(script);
+    });
+  }
+
+  newBubbleShooterLoading
+    .then(() => {
+      if (window.BubbleShooterPopNew?.mount) {
+        window.BubbleShooterPopNew.mount(box);
+      } else {
+        box.textContent = "নতুন গেমের কোড পাওয়া যায়নি।";
+      }
+    })
+    .catch(() => {
+      box.textContent = "নতুন Bubble Shooter চালু করা যাচ্ছে না।";
+    });
+}
